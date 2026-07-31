@@ -21,11 +21,36 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if ($Condition) { Pass $Message } else { Fail $Message }
 }
 
+function Get-CanonicalFileSha256([string]$LiteralPath) {
+  [byte[]]$bytes = [System.IO.File]::ReadAllBytes($LiteralPath)
+  $canonical = [System.Collections.Generic.List[byte]]::new($bytes.Length)
+
+  for ($index = 0; $index -lt $bytes.Length; $index++) {
+    if ($bytes[$index] -eq 13) {
+      if (($index + 1) -lt $bytes.Length -and $bytes[$index + 1] -eq 10) {
+        $index++
+      }
+      $canonical.Add(10)
+    } else {
+      $canonical.Add($bytes[$index])
+    }
+  }
+
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $digest = $sha256.ComputeHash($canonical.ToArray())
+  } finally {
+    $sha256.Dispose()
+  }
+  return -join ($digest | ForEach-Object { $_.ToString('x2') })
+}
+
 function Read-Utf8([string]$RelativePath) {
   return Get-Content -LiteralPath (Join-Path $root $RelativePath) -Raw -Encoding utf8
 }
 
 $requiredFiles = @(
+  '.gitattributes',
   'package.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
@@ -242,6 +267,9 @@ $decisions = Read-Utf8 'docs/architecture/decisions.md'
 Assert-True ($decisions -match 'ADR-013_ACCEPTED') 'ADR-013 is accepted after native gates and owner approval'
 Assert-True ($decisions -match 'migration-release-baseline\.sha256') 'architecture decision identifies the immutable migration release manifest'
 
+$gitAttributes = Read-Utf8 '.gitattributes'
+Assert-True ($gitAttributes -match '(?m)^\* text=auto eol=lf\s*$') 'repository enforces canonical LF text checkout'
+
 $openApi = Read-Utf8 'docs/api/openapi.yaml'
 Assert-True ($openApi -match '(?m)^openapi: 3\.1\.0\s*$') 'OpenAPI 3.1 remains the contract source'
 Assert-True ($openApi -match '(?m)^\s+identifier: LicenseRef-Proprietary\s*$') 'OpenAPI license metadata is explicit'
@@ -350,7 +378,7 @@ if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
     $candidate = Join-Path $root $relative
     Assert-True (Test-Path -LiteralPath $candidate -PathType Leaf) "M1 baseline file exists: $relative"
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidate).Hash.ToLowerInvariant()
+      $actual = Get-CanonicalFileSha256 $candidate
       Assert-True ($actual -eq $hash) "M1 baseline digest matches: $relative"
     }
   }
