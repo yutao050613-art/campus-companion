@@ -1,1 +1,6 @@
-
+.eyebrow { color: #176b4d; font-size: 26rpx; font-weight: 800; }
+.label { display: block; margin: 24rpx 0 10rpx; color: #4d6157; font-weight: 700; }
+.picker { padding: 22rpx; border: 1rpx solid #cfdad4; border-radius: 16rpx; }
+label { margin-right: 24rpx; }
+button { margin: 32rpx 0 20rpx; color: #fff; background: #176b4d; }
+.warning { border-color: #ead69d; background: #fff9e8; line-height: 1.7; }

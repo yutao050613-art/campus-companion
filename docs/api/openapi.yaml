@@ -505,6 +505,22 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /formation-rounds/{roundId}:
+    get:
+      tags: [Groups]
+      summary: Get a formation round for a locked member
+      operationId: getFormationRound
+      description: 仅当前轮次组内成员可读取；用于取得锁定的同意政策版本和确认截止时间，不返回联系方式。
+      parameters:
+        - $ref: '#/components/parameters/RoundId'
+      responses:
+        '200':
+          description: 当前成团轮次
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FormationRound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /formation-rounds/{roundId}/contact-consent:
     delete:
       tags: [Groups]

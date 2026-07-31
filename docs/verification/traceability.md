@@ -16,3 +16,18 @@
 | 分类幂等和审计 | ADR-002、ADR-010、ADR-011 | INV-010、INV-013 | 业务 Idempotency-Key、认证令牌族、回调事务号、AuditLog | T-003、T-013 |
 
 追踪矩阵在每个里程碑追加“测试证据”列。实现若无法映射到需求、约束或威胁，默认视为未授权范围扩张。
+
+## M3 测试证据补充
+
+| 需求/约束 | M3 实现证据 | M3 测试证据 |
+|---|---|---|
+| 2—4 座且至少两个账号 | `packages/domain/src/index.ts`、`GroupingService`、数据库座位触发器 | 领域边界测试；原生第四座竞争 20 轮；第五座拒绝 |
+| 单账号 1—3 座 | `CreateDemandSchema`、`summarizeGroupingMembers` | 领域属性与非法输入测试 |
+| 固定路线和服务端时间窗 | `CatalogService`、`route-windows.ts`、`requireEnabledRouteWindow` | 路线窗口单元测试；原生公开目录与发布测试 |
+| 同一账号不得进入重叠组 | `rejectOverlappingDemand`、串行化加入事务 | 原生重叠组竞争 20 轮 |
+| 认证资格与同性偏好 | `requireEligibleUser`、`isGenderPreferenceCompatible` | 过期认证、未知性别和不兼容组拒绝测试 |
+| 成团锁定成员与政策 | `groupingSnapshotHash`、`FormationRound`、`ContactConsent` | 篡改快照、错误政策、重复决策和非成员读取测试 |
+| 全员确认后只进入 M4 边界 | `RoundState.PAYING`、`GroupState.PAYING`、`PAYMENT_PENDING` | 四人并发确认 20 轮；服务订单/支付/退款/解锁均为零 |
+| 拒绝与确认超时 | `confirmFormation` 拒绝补偿、`PrismaFormationDeadlineRepository` | 原生拒绝测试；原生 Worker 超时、重放及 `PAYING` 保护测试 |
+| 候选组隐私 | `mapGroup` 的组内匿名标签 | 原生响应扫描不含账号、性别和联系方式 |
+| 不提供运输 | M3 API/小程序没有司机、车辆、车费、定位或运输状态 | 静态安全扫描与 `verify:m3` 边界断言 |

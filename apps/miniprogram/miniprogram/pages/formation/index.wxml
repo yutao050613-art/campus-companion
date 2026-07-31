@@ -1,0 +1,12 @@
+<view class="page">
+  <view class="card" wx:if="{{round}}">
+    <view class="row"><text class="title">成团确认</text><text class="state">{{round.state}}</text></view>
+    <text class="muted">成员：{{round.memberCount}} 个账号</text>
+    <text class="muted">确认截止：{{round.confirmBy}}</text>
+    <checkbox-group bindchange="onConsentChange"><label><checkbox value="granted" />我单独同意在后续全部付款成功后，按政策 {{round.contactPolicyVersion}} 向本轮成员共享我的微信号。</label></checkbox-group>
+    <button loading="{{busy}}" disabled="{{busy}}" bindtap="accept">确认同行</button>
+    <button class="decline" loading="{{busy}}" disabled="{{busy}}" bindtap="decline">拒绝并退出本轮</button>
+  </view>
+  <view class="card"><text class="muted">{{message}}</text></view>
+  <view class="card warning"><text>M3 不收取 0.99 元信息费，也不会返回联系方式；支付与解锁只在 M4 经独立验证后开放。</text></view>
+</view>

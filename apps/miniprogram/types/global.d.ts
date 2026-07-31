@@ -1,6 +1,6 @@
 interface CampusAppGlobalData {
   apiBaseUrl: string;
-  milestone: "M2";
+  milestone: "M3";
   accessToken: string;
   refreshToken: string;
   campusId: string;
@@ -32,7 +32,7 @@ declare const wx: {
   }): void;
   request<T>(options: {
     url: string;
-    method?: "GET" | "POST" | "PUT";
+    method?: "GET" | "POST" | "PUT" | "DELETE";
     header?: Record<string, string>;
     data?: unknown;
     success(response: MiniProgramResponse<T>): void;
@@ -54,4 +54,5 @@ declare const wx: {
   };
   showToast(options: { title: string; icon: "none" | "success" }): void;
   navigateTo(options: { url: string }): void;
+  stopPullDownRefresh(): void;
 };

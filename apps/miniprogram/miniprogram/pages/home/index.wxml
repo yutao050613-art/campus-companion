@@ -1,11 +1,22 @@
 <view class="page">
-  <text class="eyebrow">{{milestone}} · 工程基础</text>
-  <view class="hero">{{title}}</view>
+  <text class="eyebrow">M3 · 免费组队</text>
+  <view class="hero">校园同行</view>
   <view class="card">
+    <text class="label">固定路线</text>
+    <picker range="{{routeLabels}}" value="{{routeIndex}}" bindchange="onRouteChange">
+      <view class="picker">{{routeLabels[routeIndex] || '暂无路线'}}</view>
+    </picker>
+    <text class="label">30 分钟时间窗</text>
+    <picker range="{{windowLabels}}" value="{{windowIndex}}" bindchange="onWindowChange">
+      <view class="picker">{{windowLabels[windowIndex] || '暂无时间窗'}}</view>
+    </picker>
     <text class="muted">{{message}}</text>
   </view>
+  <view class="card group" wx:for="{{groups}}" wx:key="id" data-id="{{item.id}}" bindtap="openGroup">
+    <view class="row"><text class="strong">{{item.occupiedSeats}} / 4 座</text><text>{{item.state}}</text></view>
+    <text class="muted">{{item.accountCount}} 个认证账号 · 剩余 {{item.remainingSeats}} 座</text>
+  </view>
   <view class="card warning">
-    <text>平台只提供学生同行信息撮合，不提供司机、车辆和运输服务。</text>
+    <text>平台只撮合同路学生。学生自行通过正规平台叫车；平台不提供司机、车辆、运价、车费结算或运输服务。</text>
   </view>
 </view>
-

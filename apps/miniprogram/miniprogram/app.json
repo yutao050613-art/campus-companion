@@ -4,6 +4,8 @@
     "pages/publish/index",
     "pages/trips/index",
     "pages/profile/index",
+    "pages/group/index",
+    "pages/formation/index",
     "pages/student-verification/index",
     "pages/policies/sensitive-info"
   ],

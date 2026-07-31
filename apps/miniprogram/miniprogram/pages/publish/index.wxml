@@ -1,2 +1,18 @@
-<view class="page"><view class="card"><view>{{title}}</view><text class="muted">{{state}}</text></view></view>
-
+<view class="page">
+  <view class="card">
+    <text class="eyebrow">免费发布同行需求</text>
+    <text class="label">固定路线</text>
+    <picker range="{{routeLabels}}" value="{{routeIndex}}" bindchange="onRouteChange"><view class="picker">{{routeLabels[routeIndex] || '暂无路线'}}</view></picker>
+    <text class="label">时间窗</text>
+    <picker range="{{windowLabels}}" value="{{windowIndex}}" bindchange="onWindowChange"><view class="picker">{{windowLabels[windowIndex] || '暂无时间窗'}}</view></picker>
+    <text class="label">本账号同行座位</text>
+    <picker range="{{seatLabels}}" value="{{seatIndex}}" bindchange="onSeatChange"><view class="picker">{{seatLabels[seatIndex]}}</view></picker>
+    <text class="label">行李</text>
+    <radio-group bindchange="onLuggageChange"><label><radio value="NONE" checked="{{luggage === 'NONE'}}" />无</label><label><radio value="SMALL" />小件</label><label><radio value="LARGE" />大件</label></radio-group>
+    <text class="label">匹配偏好</text>
+    <radio-group bindchange="onPreferenceChange"><label><radio value="ANY" checked="{{genderPreference === 'ANY'}}" />不限</label><label><radio value="SAME_GENDER_ONLY" />仅同性</label></radio-group>
+    <button loading="{{busy}}" disabled="{{busy}}" bindtap="publish">免费发布</button>
+    <text class="muted">{{message}}</text>
+  </view>
+  <view class="card warning"><text>一组总座位最多 4 个，且成团至少需要两个独立认证账号。大件行李请在联系后自行判断车辆容量。</text></view>
+</view>
