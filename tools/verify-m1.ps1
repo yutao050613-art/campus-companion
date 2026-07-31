@@ -112,11 +112,20 @@ Assert-True ($workspace -match "(?m)^\s*'@prisma/engines': true\s*$") 'Prisma en
 Assert-True ($workspace -match '(?m)^\s*esbuild: true\s*$') 'esbuild lifecycle script is explicitly allowed'
 Assert-True ($workspace -match '(?m)^\s*msgpackr-extract: false\s*$') 'optional native msgpack build is explicitly denied'
 Assert-True ($workspace -match "(?m)^\s*'@prisma/config@6\.19\.2>effect': 3\.20\.0\s*$") 'audited Prisma transitive dependency is patched'
+Assert-True ($workspace -match "(?m)^\s*'fast-uri@\^3\.0\.0': 3\.1\.4\s*$") 'fast-uri v3 dependency is patched within its major version'
+Assert-True ($workspace -match "(?m)^\s*'fast-uri@\^4\.0\.0': 4\.1\.1\s*$") 'fast-uri v4 dependency is patched within its major version'
+Assert-True ($workspace -match "(?m)^\s*'find-my-way@\^9\.0\.0': 9\.7\.0\s*$") 'find-my-way dependency is patched within its major version'
 
 $lock = Read-Utf8 'pnpm-lock.yaml'
 Assert-True ($lock -match 'lockfileVersion:') 'lockfile declares a version'
 Assert-True ($lock -match 'effect@3\.20\.0') 'lockfile contains the patched effect version'
 Assert-True (-not ($lock -match 'effect@3\.18\.4')) 'vulnerable effect version is absent from lockfile'
+Assert-True ($lock -match 'fast-uri@3\.1\.4') 'lockfile contains patched fast-uri v3'
+Assert-True ($lock -match 'fast-uri@4\.1\.1') 'lockfile contains patched fast-uri v4'
+Assert-True (-not ($lock -match 'fast-uri@3\.1\.3')) 'vulnerable fast-uri v3 is absent from lockfile'
+Assert-True (-not ($lock -match 'fast-uri@4\.1\.0')) 'vulnerable fast-uri v4 is absent from lockfile'
+Assert-True ($lock -match 'find-my-way@9\.7\.0') 'lockfile contains patched find-my-way'
+Assert-True (-not ($lock -match 'find-my-way@9\.6\.0')) 'vulnerable find-my-way is absent from lockfile'
 
 $schema = Read-Utf8 'packages/database/prisma/schema.prisma'
 foreach ($model in @(
