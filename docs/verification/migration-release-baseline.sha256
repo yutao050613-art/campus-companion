@@ -1,0 +1,3 @@
+# M1 immutable migration release baseline approved by Cedric on 2026-07-31.
+# Any byte change to a listed migration invalidates this baseline and requires a new appended migration.
+6d893aa089650d72b717546960679aad1f3f61abe8b32ba07ed2a623ad605902 *packages/database/prisma/migrations/20260715000000_m1_final_state_candidate/migration.sql

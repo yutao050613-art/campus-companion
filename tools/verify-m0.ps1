@@ -21,7 +21,32 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if ($Condition) { Pass $Message } else { Fail $Message }
 }
 
+function Get-CanonicalFileSha256([string]$LiteralPath) {
+  [byte[]]$bytes = [System.IO.File]::ReadAllBytes($LiteralPath)
+  $canonical = [System.Collections.Generic.List[byte]]::new($bytes.Length)
+
+  for ($index = 0; $index -lt $bytes.Length; $index++) {
+    if ($bytes[$index] -eq 13) {
+      if (($index + 1) -lt $bytes.Length -and $bytes[$index + 1] -eq 10) {
+        $index++
+      }
+      $canonical.Add(10)
+    } else {
+      $canonical.Add($bytes[$index])
+    }
+  }
+
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $digest = $sha256.ComputeHash($canonical.ToArray())
+  } finally {
+    $sha256.Dispose()
+  }
+  return -join ($digest | ForEach-Object { $_.ToString('x2') })
+}
+
 $required = @(
+  '.gitattributes',
   'README.md',
   'docs/architecture/overview.md',
   'docs/architecture/decisions.md',
@@ -258,7 +283,7 @@ if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
     $candidate = Join-Path $root $relative
     Assert-True (Test-Path -LiteralPath $candidate -PathType Leaf) "baseline file exists: $relative"
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidate).Hash.ToLowerInvariant()
+      $actual = Get-CanonicalFileSha256 $candidate
       Assert-True ($actual -eq $hash) "baseline digest matches: $relative"
     }
   }

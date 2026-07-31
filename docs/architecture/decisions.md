@@ -85,11 +85,15 @@
 
 ## ADR-013：M1 最终态迁移候选与重置审批
 
-- 状态：Proposed；在项目/发布负责人签署环境清单且 PostgreSQL 16 原生门禁通过前不得改为 Accepted。
+- 状态：Accepted；Cedric 已于 2026-07-31 签署环境清单，原生 PostgreSQL 16.8、Redis 7.4.2、
+  依赖审计和受保护 CI 门禁均已通过。
+- 机器审计标记：`ADR-013_ACCEPTED`。
 - 背景：独立复核发现既有 M1 迁移曾被原地扩充，随后拼接出的单文件又包含 `ALTER TYPE` 等历史步骤，不能在原生验收前称为冻结基线。当前工作区与本机未发现持久数据库，但这不能证明外部开发、测试、CI、云账号、其他开发者或备份中没有旧库。
 - 候选方案：使用 Prisma 6.19.2 的 from-empty diff 直接生成最终枚举和表结构，只追加 Prisma Schema 无法表达的复合租户外键、CHECK、部分索引、触发器、函数和固定政策种子。候选目录为 `20260715000000_m1_final_state_candidate`，不包含枚举重命名、增值、加列或数据回填。
 - 审批条件：项目/发布负责人必须逐项确认环境所有者、检查方式、结果、数据保留义务和停止部署联系人，并明确批准删除全部旧 M1 临时库。未知环境不能按“无数据库”处理。
-- 冻结条件：PostgreSQL 16.8 上首次 `prisma migrate deploy`、第二次无待执行项、`prisma migrate status`、关键对象清单与并发门禁全部通过后，才生成不可变发布摘要。当前 `migration-candidate.sha256` 只是候选指纹。
+- 冻结结果：PostgreSQL 16.8 上首次 `prisma migrate deploy`、第二次无待执行项、`prisma migrate status`、
+  关键对象清单与并发门禁已经通过；`migration-release-baseline.sha256` 是不可变发布摘要，
+  `migration-candidate.sha256` 仅保留候选阶段审计记录。
 - 约束：发现任何已执行退役迁移的持久库时，重置路线自动失效，必须停止部署并设计显式前向收敛迁移。
 
 ## ADR-014：认证均为有限期且在授权时同步判定

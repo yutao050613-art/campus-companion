@@ -2,19 +2,19 @@
 
 日期：2026-07-31（Asia/Shanghai）
 
-状态：**TECHNICAL INVENTORY COMPLETE；OWNER ATTESTATION PENDING；不得执行重置或冻结迁移**
+状态：**APPROVED FOR EMPTY-DATABASE BASELINE；OWNER ATTESTATION COMPLETE；未发现需删除数据库**
 
 决策提出人：Codex（仅整理技术方案，不具备发布批准权）
-项目/发布负责人：**待填写**
-最终批准人：**待填写**
-批准时间：**待填写**
-停止部署联系人：**待填写**
+项目/发布负责人：**Cedric**
+最终批准人：**Cedric**
+批准时间：**2026-07-31 18:05:26 +08:00**
+停止部署联系人：**Cedric**
 
 机器可验证审批字段：
 
-- `ProjectReleaseOwner: PENDING`
-- `FinalApprover: PENDING`
-- `ApprovalSignature: PENDING`
+- `ProjectReleaseOwner: Cedric`
+- `FinalApprover: Cedric`
+- `ApprovalSignature: Cedric|2026-07-31T18:05:26+08:00|OWNER_ATTESTED_NO_PERSISTENT_M1_DATA`
 
 ## 事实清点
 
@@ -26,7 +26,8 @@
 - GitHub Actions 运行 `30619545281` 已在随 Job 销毁的 PostgreSQL 16.8 与 Redis 7.4.2
   服务容器中通过全部原生门禁；证据 Artifact 不含数据库 dump、卷或快照。
 - `docs/verification/m1-github-ci-and-environment-inventory.md` 固化了本轮命令、API 和 Artifact 证据。
-- 上述事实不能证明未连接到本项目的云账号、其他电脑或离线备份中绝对不存在数据库。
+- 项目/发布负责人 Cedric 已明确确认：不存在仓库外共享数据库、测试/预发布数据库、云端手工
+  数据库、其他电脑数据库、离线备份或需要保留的旧 M1 数据。
 
 ## 环境清单
 
@@ -36,17 +37,18 @@
 | 当前 Windows 主机 | Codex 本地检查 | 工具、服务、进程、端口、WSL、Docker 数据盘和常见数据目录 | 2026-07-31 | `CONFIRMED_NO_DETECTED_DB` | 未发现 |
 | GitHub 仓库环境 | Codex GitHub API 检查 | 环境、部署、Secret/Variable 名称和协作者清点 | 2026-07-31 | `CONFIRMED_NO_REPOSITORY_DEPLOYMENT` | 未发现 |
 | CI 历史数据库 | GitHub Actions | 运行 `30619545281`、Artifact `8788819226`、容器停止结果和 ZIP 清单 | 2026-07-31 | `EPHEMERAL_CI_ONLY` | 无数据库保留义务；证据保留 30 天 |
-| 共享开发环境 | **待负责人确认** | 仓库无关联环境，需声明是否有仓库外服务器 | 2026-07-31 | `NO_LINKED_ENVIRONMENT` | `OWNER_ATTESTATION_REQUIRED` |
-| 测试/预发布环境 | **待负责人确认** | GitHub 无环境/部署，Terraform 规定 M6 才创建资源 | 2026-07-31 | `NOT_PROVISIONED_BY_PROJECT` | `OWNER_ATTESTATION_REQUIRED` |
-| 腾讯云及其他云账号 | **待负责人确认** | 仓库和本机无项目关联配置，需核对账号控制台 | 2026-07-31 | `NO_PROJECT_LINKED_CLOUD_RESOURCE` | `OWNER_ATTESTATION_REQUIRED` |
-| 其他电脑、备份、快照与灾备 | **待负责人确认** | 当前证据无法覆盖其他设备、账号或离线介质 | 2026-07-31 | `OUTSIDE_TECHNICAL_VISIBILITY` | `OWNER_ATTESTATION_REQUIRED` |
+| 共享开发环境 | Cedric | 仓库证据加负责人范围外声明 | 2026-07-31 | `NO_LINKED_ENVIRONMENT` | `OWNER_ATTESTATION_COMPLETE；NONE_DECLARED` |
+| 测试/预发布环境 | Cedric | GitHub/Terraform 证据加负责人范围外声明 | 2026-07-31 | `NOT_PROVISIONED_BY_PROJECT` | `OWNER_ATTESTATION_COMPLETE；NONE_DECLARED` |
+| 腾讯云及其他云账号 | Cedric | 仓库/本机证据加负责人云账号声明 | 2026-07-31 | `NO_PROJECT_LINKED_CLOUD_RESOURCE` | `OWNER_ATTESTATION_COMPLETE；NONE_DECLARED` |
+| 其他电脑、备份、快照与灾备 | Cedric | 负责人其他设备与离线介质声明 | 2026-07-31 | `NO_PERSISTENT_COPY_DECLARED` | `OWNER_ATTESTATION_COMPLETE；NONE_DECLARED` |
 
-## 待批准决定
+## 已批准决定
 
 此前迁移只在所有外部环境均确认无保留义务并获批准后才能作为未发布验证产物退役。当前最终态候选为
 `20260715000000_m1_final_state_candidate`。任何旧 M1 数据库都不能直接应用该候选。
 
-当前迁移字节只由 `migration-candidate.sha256` 记录候选指纹，不代表冻结或批准。批准与原生验收完成后：
+候选阶段的迁移字节由 `migration-candidate.sha256` 记录。负责人批准和原生验收现已完成，最终
+不可变摘要由 `migration-release-baseline.sha256` 固定。自本决定通过受保护 PR 合并后：
 
 1. 生成新的最终发布摘要，随后迁移 SQL 不得原地编辑；
 2. 所有结构变化只能创建新迁移并追加摘要；
@@ -60,7 +62,7 @@
 
 > 我已核对上表全部环境，确认不存在需要保留的旧 M1 数据库或数据；批准删除所有旧 M1 临时库并从空库部署最终基线。我理解一旦发现遗漏数据库，必须立即停止部署并转为前向迁移方案。
 
-批准人签署：**待填写**
+批准人签署：**Cedric，2026-07-31 18:05:26 +08:00**
 
 ## 当前证据边界
 
@@ -71,4 +73,9 @@ GitHub Actions 已在原生 PostgreSQL 16.8 与 Redis 7.4.2 中通过空库首�
 仓库现已公开，`main` 已启用 branch protection：所有变更必须走 PR，严格要求 GitHub Actions
 App ID `15368` 产生的 `verify`，管理员同样受约束，并禁止强推和删除。
 
-负责人范围外声明和重置批准仍未完成。因此不得冻结迁移、不得重置数据库，M1 继续保持 `BLOCKED`。
+负责人范围外声明和重置批准已经完成。由于未发现任何持久旧库，本次没有数据库可删除，也不会
+执行破坏性重置；授权结果仅是允许从空库部署并冻结 `migration-release-baseline.sha256`。
+
+本决定必须通过受保护 PR 和严格 `verify` 后才能进入 `main`。若此后发现任何遗漏的持久旧库，
+批准立即失效，必须停止部署并改用显式前向收敛迁移。M1 完成该门禁后仍须等待用户最终确认，
+不得自动开始 M2。

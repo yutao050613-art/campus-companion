@@ -2,7 +2,7 @@
 
 日期：2026-07-31（Asia/Shanghai）
 
-状态：**技术清点完成；`main` 分支保护已启用；负责人范围外声明待完成；未执行数据库重置或迁移冻结**
+状态：**技术清点完成；`main` 分支保护已启用；Cedric 已完成负责人范围外声明**
 
 ## GitHub 仓库与分支保护
 
@@ -46,20 +46,26 @@ Artifact 文件清单只有安装、迁移、状态、测试、审计日志和 S
 | 当前 Windows 主机 | Docker CLI `29.6.1` 存在但 daemon 未运行；没有 Docker 服务/进程/数据 VHD、WSL 发行版、PostgreSQL/Redis 程序目录、服务或 5432/6379 监听 | `CONFIRMED_NO_DETECTED_DB` | 未发现 |
 | GitHub 仓库环境 | Environments 0、Deployments 0、Actions Secrets 0、Actions Variables 0 | `CONFIRMED_NO_REPOSITORY_DEPLOYMENT` | 未发现 |
 | GitHub Actions 历史数据库 | 工作流固定使用 PostgreSQL `16.8-alpine` 与 Redis `7.4.2-alpine` 服务容器；绿色证据无 dump/快照 | `EPHEMERAL_CI_ONLY` | 无数据库保留义务；验证 Artifact 保留 30 天 |
-| 共享开发环境 | 仓库没有关联环境，且只有一个协作者 | `NO_LINKED_ENVIRONMENT` | `OWNER_ATTESTATION_REQUIRED` |
-| 测试/预发布环境 | GitHub 无环境或部署；Terraform 明确规定 M6 才创建腾讯云资源 | `NOT_PROVISIONED_BY_PROJECT` | `OWNER_ATTESTATION_REQUIRED` |
-| 腾讯云及其他云账号 | 仓库无云凭据、变量、部署或资源定义；当前主机没有 `tccli` 与腾讯云环境变量 | `NO_PROJECT_LINKED_CLOUD_RESOURCE` | `OWNER_ATTESTATION_REQUIRED` |
-| 其他电脑、离线备份、快照与灾备 | 仓库与 CI 未发现数据库备份，无法从当前机器证明负责人其他设备或账号中不存在未关联副本 | `OUTSIDE_TECHNICAL_VISIBILITY` | `OWNER_ATTESTATION_REQUIRED` |
+| 共享开发环境 | 仓库没有关联环境，且 Cedric 已完成范围外声明 | `NO_LINKED_ENVIRONMENT` | `OWNER_ATTESTATION_COMPLETE；NONE_DECLARED` |
+| 测试/预发布环境 | GitHub 无环境或部署，Terraform 规定 M6 才创建资源，Cedric 已完成范围外声明 | `NOT_PROVISIONED_BY_PROJECT` | `OWNER_ATTESTATION_COMPLETE；NONE_DECLARED` |
+| 腾讯云及其他云账号 | 仓库和本机无项目关联配置，Cedric 已完成云账号声明 | `NO_PROJECT_LINKED_CLOUD_RESOURCE` | `OWNER_ATTESTATION_COMPLETE；NONE_DECLARED` |
+| 其他电脑、离线备份、快照与灾备 | 仓库与 CI 无数据库备份，Cedric 已完成其他设备与离线介质声明 | `NO_PERSISTENT_COPY_DECLARED` | `OWNER_ATTESTATION_COMPLETE；NONE_DECLARED` |
 
-## 负责人仍须确认
+## 负责人确认
 
 技术证据已经消除当前工作区、当前主机、GitHub 仓库和 GitHub Actions 历史数据库的不确定性。
-项目/发布负责人仍须明确声明以下范围是否存在任何旧 M1 数据库、dump、卷、快照或需保留数据：
+项目/发布负责人 Cedric 于 2026-07-31 18:05:26 +08:00 确认以下范围不存在任何旧 M1
+数据库、dump、卷、快照或需保留数据：
 
 1. 未连接到本仓库的共享开发、测试或预发布服务器；
 2. 腾讯云及其他云账号中的手工创建资源；
 3. 负责人自己的其他电脑、移动硬盘、NAS 或离线备份；
 4. 任何未登记协作者持有的副本。
 
-在负责人填写姓名、最终批准人、停止部署联系人并签署重置声明前，迁移仍只是候选，M1 保持
-`BLOCKED`。一旦发现任一持久旧库，必须放弃从空库重置方案并设计前向收敛迁移。
+声明原文：
+
+> 我确认不存在仓库外共享数据库、测试/预发布数据库、云端手工数据库、其他电脑数据库、
+> 离线备份或需要保留的旧 M1 数据。
+
+标记：`OWNER_ATTESTATION_COMPLETE`。一旦发现任一持久旧库，批准立即失效，必须放弃从空库
+重置方案并设计前向收敛迁移。
