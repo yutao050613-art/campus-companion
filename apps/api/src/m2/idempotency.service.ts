@@ -6,6 +6,7 @@ import { PrismaService } from "../database/prisma.service";
 import { DATA_PROTECTOR } from "./providers";
 
 const IDEMPOTENCY_LIFETIME_MS = 24 * 60 * 60 * 1_000;
+const SERIALIZABLE_TRANSACTION_ATTEMPTS = 3;
 
 export interface IdempotentResult<T> {
   readonly status: number;
@@ -49,35 +50,32 @@ export class IdempotencyService {
     const requestDigest = sha256Hex(canonicalJson(request));
     const scope = `m2:${operation}`;
     try {
-      return await this.prisma.$transaction(
-        async (transaction) => {
-          const existing = await transaction.idempotencyRecord.findUnique({
-            where: { scope_key: { scope, key } },
-          });
-          if (existing !== null) {
-            if (existing.expiresAt > now) return this.replay<T>(existing, actor, requestDigest);
-            await transaction.idempotencyRecord.delete({ where: { id: existing.id } });
-          }
-          const result = await action(transaction);
-          const encrypted = this.protector.encrypt(JSON.stringify(result.body));
-          await transaction.idempotencyRecord.create({
-            data: {
-              scope,
-              key,
-              requestDigest,
-              responseStatus: result.status,
-              responseCiphertext: Uint8Array.from(encrypted.ciphertext),
-              keyVersion: encrypted.keyVersion,
-              expiresAt: new Date(now.getTime() + IDEMPOTENCY_LIFETIME_MS),
-              ...(actor.campusId === undefined ? {} : { campusId: actor.campusId }),
-              ...(actor.userId === undefined ? {} : { userId: actor.userId }),
-              ...(actor.adminUserId === undefined ? {} : { adminUserId: actor.adminUserId }),
-            },
-          });
-          return { ...result, replayed: false };
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
+      return await runSerializableWithRetry(this.prisma, async (transaction) => {
+        const existing = await transaction.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key } },
+        });
+        if (existing !== null) {
+          if (existing.expiresAt > now) return this.replay<T>(existing, actor, requestDigest);
+          await transaction.idempotencyRecord.delete({ where: { id: existing.id } });
+        }
+        const result = await action(transaction);
+        const encrypted = this.protector.encrypt(JSON.stringify(result.body));
+        await transaction.idempotencyRecord.create({
+          data: {
+            scope,
+            key,
+            requestDigest,
+            responseStatus: result.status,
+            responseCiphertext: Uint8Array.from(encrypted.ciphertext),
+            keyVersion: encrypted.keyVersion,
+            expiresAt: new Date(now.getTime() + IDEMPOTENCY_LIFETIME_MS),
+            ...(actor.campusId === undefined ? {} : { campusId: actor.campusId }),
+            ...(actor.userId === undefined ? {} : { userId: actor.userId }),
+            ...(actor.adminUserId === undefined ? {} : { adminUserId: actor.adminUserId }),
+          },
+        });
+        return { ...result, replayed: false };
+      });
     } catch (error) {
       if (!isUniqueConstraint(error)) throw error;
       const existing = await this.prisma.idempotencyRecord.findUnique({
@@ -136,6 +134,24 @@ export class IdempotencyService {
   }
 }
 
+async function runSerializableWithRetry<T>(
+  prisma: PrismaService,
+  action: (transaction: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; attempt <= SERIALIZABLE_TRANSACTION_ATTEMPTS; attempt += 1) {
+    try {
+      return await prisma.$transaction(action, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      if (!isSerializationConflict(error) || attempt === SERIALIZABLE_TRANSACTION_ATTEMPTS) {
+        throw error;
+      }
+    }
+  }
+  throw new Error("serializable transaction retry invariant violated");
+}
+
 function validateRequest(operation: string, key: string, actor: IdempotencyActor): void {
   if (!/^[A-Za-z0-9._:-]{16,128}$/.test(key)) {
     throw new ApplicationError("VALIDATION_ERROR", "Idempotency-Key is invalid", 400, {
@@ -172,4 +188,8 @@ function canonicalJson(value: unknown): string {
 
 function isUniqueConstraint(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function isSerializationConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
 }

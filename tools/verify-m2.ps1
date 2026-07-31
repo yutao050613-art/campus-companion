@@ -49,10 +49,14 @@ $requiredFiles = @(
   'packages/auth/test/index.test.ts',
   'packages/verification/src/index.ts',
   'packages/verification/test/object-store.test.ts',
+  'apps/api/src/bootstrap.ts',
   'apps/api/src/auth/auth.service.ts',
+  'apps/api/src/m2/idempotency.service.ts',
   'apps/api/src/verification/verification.service.ts',
   'apps/api/src/admin/admin-auth.service.ts',
   'apps/api/src/admin/admin-verification.service.ts',
+  'apps/api/test/health.e2e.test.ts',
+  'apps/api/test/idempotency.service.test.ts',
   'apps/api/test/native-m2.e2e.test.ts',
   'apps/worker/src/verification-asset-deletion.ts',
   'apps/worker/test/verification-asset-deletion.test.ts',
@@ -100,6 +104,17 @@ Assert-True ($verificationPackage -match 'INVALID_IMAGE_SIGNATURE') 'verificatio
 Assert-True ($verificationPackage -match 'aes-256-gcm') 'verification upload grants encrypt their private object binding'
 Assert-True ($verificationPackage -match 'UPLOAD_TOKEN_CONTEXT') 'verification upload grants are context bound'
 Assert-True ($verificationPackage -match 'flag: "wx"') 'private verification objects cannot be silently overwritten'
+
+$bootstrap = Read-Utf8 'apps/api/src/bootstrap.ts'
+Assert-True ($bootstrap -match 'maxParamLength:\s*512') 'encrypted upload token route has a bounded 512 character limit'
+$idempotency = Read-Utf8 'apps/api/src/m2/idempotency.service.ts'
+Assert-True ($idempotency -match 'SERIALIZABLE_TRANSACTION_ATTEMPTS = 3') 'serializable transaction retry count is bounded at three'
+Assert-True ($idempotency -match 'error\.code === "P2034"') 'serializable transaction conflicts are identified explicitly'
+$routerRegression = Read-Utf8 'apps/api/test/health.e2e.test.ts'
+Assert-True ($routerRegression -match 'token\.length\)\.toBeGreaterThan\(100\)') 'router regression test exceeds the framework default parameter limit'
+Assert-True ($routerRegression -match 'response\.statusCode\)\.toBe\(204\)') 'router regression test proves encrypted upload delivery'
+$retryRegression = Read-Utf8 'apps/api/test/idempotency.service.test.ts'
+Assert-True ($retryRegression -match 'toHaveBeenCalledTimes\(3\)') 'retry regression test proves the bounded exhaustion path'
 
 $adminAuth = Read-Utf8 'apps/api/src/admin/admin-auth.service.ts'
 foreach ($guard in @('CSRF_GRACE_LIFETIME_MS', 'admin-csrf-current', 'admin-csrf-grace', 'verifyReauthenticationTotp')) {

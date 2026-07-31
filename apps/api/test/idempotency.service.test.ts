@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { AesGcmProtector, sha256Hex } from "@campus/auth";
+import { Prisma } from "@campus/database";
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/database/prisma.service";
 import { IdempotencyService } from "../src/m2/idempotency.service";
@@ -106,6 +107,66 @@ describe("IdempotencyService", () => {
       ),
     ).resolves.toMatchObject({ replayed: false });
     expect(remove).toHaveBeenCalledOnce();
+  });
+
+  it("retries a rolled-back serializable transaction up to the bounded attempt limit", async () => {
+    const transaction = {
+      idempotencyRecord: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({}),
+        delete: vi.fn(),
+      },
+    };
+    const serializationConflict = new Prisma.PrismaClientKnownRequestError(
+      "serialization conflict",
+      { code: "P2034", clientVersion: "6.19.2" },
+    );
+    const runTransaction = vi
+      .fn()
+      .mockImplementationOnce(async (action: (value: unknown) => Promise<unknown>) => {
+        await action(transaction);
+        throw serializationConflict;
+      })
+      .mockImplementationOnce(async (action: (value: unknown) => Promise<unknown>) =>
+        action(transaction),
+      );
+    const service = new IdempotencyService(
+      prismaWith(transaction, {
+        $transaction: runTransaction,
+        idempotencyRecord: { findUnique: vi.fn().mockResolvedValue(null) },
+      }),
+      protector,
+    );
+    const action = vi.fn().mockResolvedValue({ status: 201, body: { retried: true } });
+
+    await expect(
+      service.execute("createThing", key, actor, { value: 1 }, action, now),
+    ).resolves.toMatchObject({ status: 201, body: { retried: true }, replayed: false });
+    expect(runTransaction).toHaveBeenCalledTimes(2);
+    expect(action).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops after three serializable transaction conflicts", async () => {
+    const serializationConflict = new Prisma.PrismaClientKnownRequestError(
+      "serialization conflict",
+      { code: "P2034", clientVersion: "6.19.2" },
+    );
+    const runTransaction = vi.fn().mockRejectedValue(serializationConflict);
+    const service = new IdempotencyService(
+      prismaWith(
+        {},
+        {
+          $transaction: runTransaction,
+          idempotencyRecord: { findUnique: vi.fn().mockResolvedValue(null) },
+        },
+      ),
+      protector,
+    );
+
+    await expect(
+      service.execute("createThing", key, actor, { value: 1 }, vi.fn(), now),
+    ).rejects.toMatchObject({ code: "P2034" });
+    expect(runTransaction).toHaveBeenCalledTimes(3);
   });
 
   it("rejects actor, body, processing-state and key-version conflicts", async () => {

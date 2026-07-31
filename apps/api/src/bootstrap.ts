@@ -20,6 +20,9 @@ export async function createApp(
     requestIdHeader: false,
     genReqId: () => `req_${randomUUID()}`,
     bodyLimit: 5_242_880,
+    routerOptions: {
+      maxParamLength: 512,
+    },
   });
   adapter
     .getInstance()
