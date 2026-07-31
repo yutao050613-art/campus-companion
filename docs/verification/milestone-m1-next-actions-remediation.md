@@ -12,8 +12,8 @@
 - A-08：同一绿色运行的依赖审计所有严重级别均为 0。
 - A-02：工作区、本机、GitHub 仓库和 CI 历史数据库技术清点已完成；仓库外云账号、其他设备
   和离线备份仍需负责人声明，详见 `m1-github-ci-and-environment-inventory.md`。
-- A-09：远程仓库和绿色 CI 已建立，但私人仓库当前套餐调用 branch protection/rulesets API
-  返回 HTTP 403；需要升级 GitHub Pro 或经负责人批准将仓库公开，当前信任根仍不满足。
+- A-09：负责人已批准仓库公开；`main` 已要求 PR、严格的 GitHub Actions `verify`、管理员执行、
+  解决会话、线性历史，并禁止强推和删除。状态改为 `COMPLETE`。
 
 以下正文保留 2026-07-15 整改当时的历史状态，不得覆盖上述更新。
 
@@ -102,7 +102,7 @@
 | A-06 原生 PostgreSQL 测试 | PENDING | 用例已实现，尚无0跳过的原生运行证据 |
 | A-07 原生 Redis 测试 | PENDING | 用例已实现，尚无0跳过的原生运行证据 |
 | A-08 在线依赖审计 | LOCAL PASS / CI PENDING | 本地已刷新为全0，仍需受保护 CI 产物 |
-| A-09 受保护 CI 信任根 | PENDING | 当前目录不是 Git 仓库，机器无 Git 客户端，且尚未提供受控远程仓库 |
+| A-09 受保护 CI 信任根 | COMPLETE | 公开仓库 `main` 已启用管理员执行的 PR、严格 `verify`、线性历史、会话解决、禁强推/删除 |
 | A-10 冻结迁移与 M1 PASS | PROHIBITED | A-01 至 A-09 尚未全部完成 |
 | A-11 用户确认 M1 | PROHIBITED | 只能在最终 M1 报告为 PASS 后执行 |
 

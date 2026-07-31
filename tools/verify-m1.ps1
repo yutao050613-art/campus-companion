@@ -215,7 +215,9 @@ Assert-True ($environmentInventory -match 'Artifact ID \| `8788819226`') 'enviro
 Assert-True ($environmentInventory -match 'EPHEMERAL_CI_ONLY') 'environment inventory distinguishes ephemeral CI databases'
 Assert-True ($environmentInventory -match 'CONFIRMED_NO_PERSISTENT_DB') 'environment inventory records the workspace database result'
 Assert-True ($environmentInventory -match 'CONFIRMED_NO_DETECTED_DB') 'environment inventory records the current host database result'
-Assert-True ($environmentInventory -match 'Upgrade to GitHub Pro or make this repository public') 'environment inventory records the branch-protection capability blocker'
+Assert-True ($environmentInventory -match 'BRANCH_PROTECTION_ACTIVE') 'environment inventory records active main branch protection'
+Assert-True ($environmentInventory -match 'App ID `15368`') 'environment inventory pins the required check to GitHub Actions'
+Assert-True ($environmentInventory -match 'FORCE_PUSH_AND_DELETION_DISABLED') 'environment inventory records destructive branch operations as disabled'
 
 $openApi = Read-Utf8 'docs/api/openapi.yaml'
 Assert-True ($openApi -match '(?m)^openapi: 3\.1\.0\s*$') 'OpenAPI 3.1 remains the contract source'

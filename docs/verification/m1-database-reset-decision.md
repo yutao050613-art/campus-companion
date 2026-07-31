@@ -68,5 +68,7 @@ GitHub Actions 已在原生 PostgreSQL 16.8 与 Redis 7.4.2 中通过空库首�
 迁移状态、对象清单、并发、队列及依赖审计。Artifact ZIP 的 SHA-256 为
 `7836b9f662b81ed669fdbf1e9d1cb3dbd5a6bf8f7e401cb7fb0bdc6598b10933`。
 
-但当前私人仓库套餐不支持 branch protection 或 rulesets，相关 GitHub API 返回 HTTP 403；负责人
-范围外声明和重置批准也尚未完成。因此不得冻结迁移、不得重置数据库，M1 继续保持 `BLOCKED`。
+仓库现已公开，`main` 已启用 branch protection：所有变更必须走 PR，严格要求 GitHub Actions
+App ID `15368` 产生的 `verify`，管理员同样受约束，并禁止强推和删除。
+
+负责人范围外声明和重置批准仍未完成。因此不得冻结迁移、不得重置数据库，M1 继续保持 `BLOCKED`。
