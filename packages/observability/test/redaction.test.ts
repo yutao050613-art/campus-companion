@@ -16,10 +16,14 @@ describe("structured logging", () => {
     logger.info({
       accessToken: "CANARY_ACCESS_TOKEN",
       nested: { wechatId: "CANARY_WECHAT_ID", grantToken: "CANARY_GRANT_TOKEN" },
+      password: "CANARY_PASSWORD",
+      totpCode: "CANARY_TOTP",
+      csrfToken: "CANARY_CSRF",
       req: {
         headers: {
           authorization: "Bearer CANARY_AUTH",
           "x-verification-asset-grant": "CANARY_GRANT_HEADER",
+          "x-csrf-token": "CANARY_CSRF_HEADER",
         },
       },
     });
@@ -29,6 +33,9 @@ describe("structured logging", () => {
     expect(output).not.toContain("CANARY_AUTH");
     expect(output).not.toContain("CANARY_GRANT_TOKEN");
     expect(output).not.toContain("CANARY_GRANT_HEADER");
+    expect(output).not.toContain("CANARY_PASSWORD");
+    expect(output).not.toContain("CANARY_TOTP");
+    expect(output).not.toContain("CANARY_CSRF");
     expect(output).toContain("[REDACTED]");
   });
 });

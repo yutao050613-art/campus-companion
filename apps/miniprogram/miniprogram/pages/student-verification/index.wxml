@@ -1,0 +1,39 @@
+<view class="page">
+  <view class="card">
+    <text class="eyebrow">学生认证</text>
+    <view class="status">当前状态：{{status}}</view>
+    <text class="muted">{{message}}</text>
+    <text class="reason" wx:if="{{reasonCode}}">原因：{{reasonCode}}</text>
+  </view>
+
+  <view class="card" wx:if="{{status === 'NOT_SUBMITTED'}}">
+    <text class="label">学号</text>
+    <input maxlength="64" value="{{studentNumber}}" bindinput="onStudentNumberInput" placeholder="仅用于 HMAC 去重，不保存完整学号" />
+    <text class="label">自报性别（仅用于同性匹配）</text>
+    <radio-group bindchange="onGenderChange">
+      <label><radio value="UNDISCLOSED" checked="{{genderDeclaration === 'UNDISCLOSED'}}" />不声明</label>
+      <label><radio value="FEMALE" />女</label>
+      <label><radio value="MALE" />男</label>
+    </radio-group>
+  </view>
+
+  <view class="card" wx:if="{{status === 'NOT_SUBMITTED' || status === 'REQUIRE_RESUBMISSION'}}">
+    <text class="label">认证材料（至少一种，可同时选择）</text>
+    <checkbox-group bindchange="onEvidenceChange">
+      <label class="evidence"><checkbox value="STUDENT_CARD" checked="{{studentCardSelected}}" />学生卡照片</label>
+      <label class="evidence"><checkbox value="WECOM_SCREENSHOT" checked="{{wecomSelected}}" />企业微信身份截图</label>
+    </checkbox-group>
+    <text class="muted">待审核期间材料持续保留；作出审核决定后进入 24 小时删除倒计时。</text>
+
+    <checkbox-group wx:if="{{status === 'NOT_SUBMITTED'}}" bindchange="onConsentChange">
+      <label class="consent"><checkbox value="accepted" />我单独同意平台按说明处理所选认证材料；异常申诉或安全事件经审计批准最长保留 7 天。</label>
+    </checkbox-group>
+    <button class="policy" bindtap="openSensitivePolicy">阅读完整单独同意书</button>
+    <button wx:if="{{status === 'NOT_SUBMITTED'}}" loading="{{busy}}" disabled="{{busy}}" bindtap="submit">选择材料并提交</button>
+    <button wx:if="{{status === 'REQUIRE_RESUBMISSION'}}" loading="{{busy}}" disabled="{{busy}}" bindtap="resubmit">补交认证材料</button>
+  </view>
+
+  <view class="card warning">
+    <text>不要上传身份证、出生日期、聊天内容、联系人或二维码。请遮挡与学生身份审核无关的信息。</text>
+  </view>
+</view>

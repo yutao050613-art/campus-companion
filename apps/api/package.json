@@ -12,8 +12,11 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@campus/auth": "workspace:*",
     "@campus/contracts": "workspace:*",
+    "@campus/database": "workspace:*",
     "@campus/observability": "workspace:*",
+    "@campus/verification": "workspace:*",
     "@nestjs/common": "11.1.28",
     "@nestjs/core": "11.1.28",
     "@nestjs/platform-fastify": "11.1.28",

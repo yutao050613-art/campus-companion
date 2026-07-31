@@ -287,11 +287,11 @@ describe.runIf(runNativePostgres)("native PostgreSQL 16 guards", () => {
       const tokenDigest = grantAttempt.toString(16).padStart(64, "0");
       await database.$executeRaw`
         INSERT INTO "VerificationAssetAccessGrant" (
-          "id", "campusId", "verificationId", "adminUserId", "adminSessionId",
+          "id", "campusId", "verificationId", "verificationAssetId", "adminUserId", "adminSessionId",
           "tokenDigest", "requestId", "expiresAt"
         ) VALUES (
           ${grantId}::uuid, ${ids.campus}::uuid, ${ids.verification}::uuid,
-          ${ids.admin}::uuid, ${ids.adminSession}::uuid, ${tokenDigest},
+          ${ids.verificationAsset}::uuid, ${ids.admin}::uuid, ${ids.adminSession}::uuid, ${tokenDigest},
           ${`native-grant-issue-${grantAttempt}`},
           NOW() + INTERVAL '30 seconds'
         )

@@ -1,5 +1,12 @@
 {
-  "pages": ["pages/home/index", "pages/publish/index", "pages/trips/index", "pages/profile/index"],
+  "pages": [
+    "pages/home/index",
+    "pages/publish/index",
+    "pages/trips/index",
+    "pages/profile/index",
+    "pages/student-verification/index",
+    "pages/policies/sensitive-info"
+  ],
   "window": {
     "navigationBarTitleText": "校园同行",
     "navigationBarBackgroundColor": "#176b4d",

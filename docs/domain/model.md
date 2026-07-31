@@ -22,7 +22,7 @@
 | UserSession | id、userId、refreshTokenHash、expiresAt、revokedAt | 只存刷新令牌哈希，可逐会话撤销 |
 | UserContact | userId、wechatIdCiphertext、keyVersion、updatedAt | 应用层加密，读取必须经过授权服务 |
 | StudentVerification | id、userId、campusId、studentNoDigest、last4、status、submittedAt、latestSubmittedAt、reviewedAt、expiresAt | 同校区学号摘要唯一；不存完整学号；首次提交时间不可清空；所有通过认证均有明确有效期，不允许永久认证 |
-| VerificationAsset | id、verificationId、objectKey、uploadExpiresAt、deleteAfter、deletedAt | 私有对象；上传凭证过期即不可提交；审核后 24 小时删除 |
+| VerificationAsset | id、verificationId、type、objectKey、uploadExpiresAt、deleteAfter、deletionClaimedAt、deletedAt | 学生卡/企业微信截图私有对象；待审核时 deleteAfter 为空；审核后 24 小时删除 |
 
 ### 路线与组队
 

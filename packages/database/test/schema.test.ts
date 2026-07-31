@@ -5,12 +5,13 @@ import { describe, expect, it } from "vitest";
 
 const schema = readFileSync(join(__dirname, "../prisma/schema.prisma"), "utf8");
 const migrationsRoot = join(__dirname, "../prisma/migrations");
-const migration = readdirSync(migrationsRoot, { withFileTypes: true })
+const migrationFiles = readdirSync(migrationsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name)
   .sort()
-  .map((directory) => readFileSync(join(migrationsRoot, directory, "migration.sql"), "utf8"))
-  .join("\n");
+  .map((directory) => readFileSync(join(migrationsRoot, directory, "migration.sql"), "utf8"));
+const migration = migrationFiles.join("\n");
+const m1Migration = migrationFiles[0] ?? "";
 
 function modelBody(modelName: string): string {
   const match = schema.match(new RegExp(`model ${modelName} \\{([\\s\\S]*?)\\n\\}`));
@@ -93,6 +94,16 @@ describe("database architecture boundary", () => {
     expect(migration).toContain("VerificationAssetAccessGrant_usedAt_immutable_trigger");
   });
 
+  it("registers the reviewed M2 sensitive-information policy without rewriting M1", () => {
+    expect(migration).toContain("2026-07-31T00:00:00.000Z");
+    expect(migration).toContain("sensitive-info-v1");
+    expect(migration).toContain("46035097382e2f7435307106825cc0f2cc2a94a98e767b597a48488ee73918a7");
+    expect(migration).toContain('CREATE TYPE "VerificationAssetType"');
+    expect(migration).toContain('"verificationAssetId" UUID');
+    expect(migration).toContain('ALTER COLUMN "deleteAfter" DROP NOT NULL');
+    expect(migration).not.toMatch(/UPDATE\s+"(?:StudentVerification|PolicyVersion)"/iu);
+  });
+
   it("models the remediated M0 states and immutable policy baseline", () => {
     const verificationStatus = schema.match(/enum VerificationStatus \{([\s\S]*?)\n\}/)?.[1] ?? "";
     expect(schema).toMatch(/enum VerificationStatus \{[\s\S]*AWAITING_UPLOAD/);
@@ -119,19 +130,19 @@ describe("database architecture boundary", () => {
   });
 
   it("is a final-state empty-database candidate without historical upgrade steps", () => {
-    expect(migration).toContain(
+    expect(m1Migration).toContain(
       "M1 final-state candidate baseline generated from an empty database",
     );
-    expect(migration).toContain(
+    expect(m1Migration).toContain(
       `CREATE TYPE "VerificationStatus" AS ENUM ('AWAITING_UPLOAD', 'UPLOAD_EXPIRED', 'PENDING', 'VERIFIED', 'REJECTED', 'REQUIRE_RESUBMISSION', 'RESUBMISSION_AWAITING_UPLOAD', 'RESUBMISSION_PENDING', 'VERIFICATION_EXPIRED')`,
     );
-    expect(migration).toContain(
+    expect(m1Migration).toContain(
       `CREATE TYPE "GroupState" AS ENUM ('RECRUITING', 'READY', 'CONFIRMING', 'PAYING', 'REFUNDING', 'REFUND_RETRY', 'CONTACTS_UNLOCKED', 'COMPLETED', 'EXPIRED', 'RISK_HOLD', 'DISPUTED')`,
     );
-    expect(migration).not.toMatch(/ALTER TYPE|ADD COLUMN/);
-    expect(migration).not.toMatch(/original M1 snapshot|preceding migration|historical EXPIRED/i);
-    expect(migration).not.toContain('UPDATE "StudentVerification"');
-    expect(migration).not.toContain('UPDATE "FormationRound"');
-    expect(migration).not.toContain('UPDATE "VerificationAsset"');
+    expect(m1Migration).not.toMatch(/ALTER TYPE|ADD COLUMN/);
+    expect(m1Migration).not.toMatch(/original M1 snapshot|preceding migration|historical EXPIRED/i);
+    expect(m1Migration).not.toContain('UPDATE "StudentVerification"');
+    expect(m1Migration).not.toContain('UPDATE "FormationRound"');
+    expect(m1Migration).not.toContain('UPDATE "VerificationAsset"');
   });
 });

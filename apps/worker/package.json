@@ -12,7 +12,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@campus/database": "workspace:*",
     "@campus/observability": "workspace:*",
+    "@campus/verification": "workspace:*",
     "bullmq": "5.79.3",
     "zod": "4.4.3"
   }

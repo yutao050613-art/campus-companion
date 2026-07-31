@@ -41,7 +41,7 @@ const ids = {
   grantAudit: "00000000-0000-0000-0000-00000000e004",
 } as const;
 
-describe("PostgreSQL final-state migration candidate", () => {
+describe("PostgreSQL migration chain", () => {
   const database = new PGlite();
 
   beforeAll(async () => {
@@ -55,7 +55,7 @@ describe("PostgreSQL final-state migration candidate", () => {
   });
 
   it("applies to an empty PostgreSQL engine and enforces core guards", async () => {
-    expect(migrations).toHaveLength(1);
+    expect(migrations).toHaveLength(2);
     await database.exec(`
       INSERT INTO "Campus" ("id", "name", "updatedAt") VALUES
         ('${ids.campus}', 'Campus A', NOW()),
@@ -275,6 +275,33 @@ describe("PostgreSQL final-state migration candidate", () => {
     expect(result.rows[0]?.count).toBe("0");
   });
 
+  it("applies M2 additively to an M1 snapshot without rewriting existing rows", async () => {
+    const snapshot = new PGlite();
+    try {
+      const m1 = migrations[0];
+      const m2 = migrations[1];
+      if (m1 === undefined || m2 === undefined) throw new Error("migration chain is incomplete");
+      await snapshot.exec(m1);
+      await snapshot.exec(`
+        INSERT INTO "Campus" ("id", "name", "updatedAt")
+        VALUES ('00000000-0000-4000-8000-00000000aa01', 'Preserved M1 Campus', NOW());
+      `);
+      await snapshot.exec(m2);
+      const preserved = await snapshot.query<{ name: string }>(
+        `SELECT "name" FROM "Campus" WHERE "id" = '00000000-0000-4000-8000-00000000aa01'`,
+      );
+      const policy = await snapshot.query<{ contentDigest: string }>(
+        `SELECT "contentDigest" FROM "PolicyVersion" WHERE "type" = 'SENSITIVE_INFO' AND "version" = 'sensitive-info-v1'`,
+      );
+      expect(preserved.rows[0]?.name).toBe("Preserved M1 Campus");
+      expect(policy.rows[0]?.contentDigest).toBe(
+        "46035097382e2f7435307106825cc0f2cc2a94a98e767b597a48488ee73918a7",
+      );
+    } finally {
+      await snapshot.close();
+    }
+  });
+
   it("installs the final enum and custom database object inventory", async () => {
     const verificationStatuses = await database.query<{ enumlabel: string }>(
       databaseObjectInventorySql.verificationStatuses,
@@ -301,6 +328,54 @@ describe("PostgreSQL final-state migration candidate", () => {
     expect(triggers.rows.map((row) => row.tgname)).toEqual(
       expectedDatabaseObjectInventory.triggers,
     );
+  });
+
+  it("stores one or both typed evidence assets and permits pending-review retention", async () => {
+    const verification = "00000000-0000-0000-0000-00000000d020";
+    await database.exec(`
+      INSERT INTO "StudentVerification" (
+        "id", "userId", "campusId", "studentNumberDigest", "studentNumberLast4",
+        "status", "consentPolicyId", "submittedAt", "latestSubmittedAt", "updatedAt"
+      ) VALUES (
+        '${verification}', '${ids.userB}', '${ids.campus}',
+        '2020202020202020202020202020202020202020202020202020202020202020',
+        '2020', 'PENDING', '00000000-0000-0000-0000-00000000c002', NOW(), NOW(), NOW()
+      );
+      INSERT INTO "VerificationAsset" (
+        "id", "campusId", "verificationId", "type", "objectKey", "contentDigest",
+        "contentType", "sizeBytes", "uploadExpiresAt", "deleteAfter"
+      ) VALUES
+        (
+          '00000000-0000-0000-0000-00000000d021', '${ids.campus}', '${verification}',
+          'STUDENT_CARD', 'private/typed/student-card',
+          '2121212121212121212121212121212121212121212121212121212121212121',
+          'image/png', 8, NOW() + INTERVAL '15 minutes', NULL
+        ),
+        (
+          '00000000-0000-0000-0000-00000000d022', '${ids.campus}', '${verification}',
+          'WECOM_SCREENSHOT', 'private/typed/wecom',
+          '2222222222222222222222222222222222222222222222222222222222222222',
+          'image/jpeg', 8, NOW() + INTERVAL '15 minutes', NULL
+        );
+    `);
+    const assets = await database.query<{ type: string; deleteAfter: Date | null }>(`
+      SELECT "type"::text AS type, "deleteAfter" AS "deleteAfter"
+        FROM "VerificationAsset"
+       WHERE "verificationId" = '${verification}'
+       ORDER BY "type"
+    `);
+    expect(assets.rows).toHaveLength(2);
+    expect(assets.rows.every((asset) => asset.deleteAfter === null)).toBe(true);
+    await expect(
+      database.exec(`
+        INSERT INTO "VerificationAsset" (
+          "id", "campusId", "verificationId", "type", "objectKey", "uploadExpiresAt"
+        ) VALUES (
+          '00000000-0000-0000-0000-00000000d023', '${ids.campus}', '${verification}',
+          'STUDENT_CARD', 'private/typed/duplicate', NOW() + INTERVAL '15 minutes'
+        );
+      `),
+    ).rejects.toThrow(/unique|verificationId_type|23505/i);
   });
 
   it("atomically consumes a session-bound verification asset grant exactly once", async () => {
@@ -335,10 +410,10 @@ describe("PostgreSQL final-state migration candidate", () => {
         NOW() + INTERVAL '10 minutes', NOW()
       );
       INSERT INTO "VerificationAssetAccessGrant" (
-        "id", "campusId", "verificationId", "adminUserId", "adminSessionId",
+        "id", "campusId", "verificationId", "verificationAssetId", "adminUserId", "adminSessionId",
         "tokenDigest", "requestId", "expiresAt"
       ) VALUES (
-        '${ids.assetGrant}', '${ids.campus}', '${ids.verification}', '${ids.admin}',
+        '${ids.assetGrant}', '${ids.campus}', '${ids.verification}', '${ids.verificationAsset}', '${ids.admin}',
         '${ids.adminSession}', '${tokenDigest}', 'grant-issue-request',
         NOW() + INTERVAL '30 seconds'
       );
@@ -378,11 +453,11 @@ describe("PostgreSQL final-state migration candidate", () => {
     await expect(
       database.exec(`
         INSERT INTO "VerificationAssetAccessGrant" (
-          "id", "campusId", "verificationId", "adminUserId", "adminSessionId",
+          "id", "campusId", "verificationId", "verificationAssetId", "adminUserId", "adminSessionId",
           "tokenDigest", "requestId", "expiresAt"
         ) VALUES (
           '00000000-0000-0000-0000-00000000e006', '${ids.campus}',
-          '${ids.verification}', '${ids.admin}', '${ids.adminSession}',
+          '${ids.verification}', '${ids.verificationAsset}', '${ids.admin}', '${ids.adminSession}',
           'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd',
           'grant-too-long', NOW() + INTERVAL '61 seconds'
         );

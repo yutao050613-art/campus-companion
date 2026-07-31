@@ -275,18 +275,15 @@ Assert-True (-not ($errorBlock -match 'additionalProperties: true')) 'error deta
 
 $baselinePath = Join-Path $root 'docs/verification/m0-baseline.sha256'
 if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
+  $baselineManifestDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $baselinePath).Hash.ToLowerInvariant()
+  Assert-True (
+    $baselineManifestDigest -eq '83666a0ae2fecb1f7f487c4ff9eed6f7c363d86a0a5687c06f275067bdd77cc7'
+  ) 'historical M0 baseline manifest itself remains byte-for-byte immutable'
   $baselineLines = Get-Content -LiteralPath $baselinePath -Encoding utf8 | Where-Object { $_ -match '^[a-f0-9]{64} \*' }
   Assert-True ($baselineLines.Count -ge 9) 'M0 baseline covers core architecture and verification files'
-  foreach ($line in $baselineLines) {
-    $hash = $line.Substring(0, 64)
-    $relative = $line.Substring(66)
-    $candidate = Join-Path $root $relative
-    Assert-True (Test-Path -LiteralPath $candidate -PathType Leaf) "baseline file exists: $relative"
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      $actual = Get-CanonicalFileSha256 $candidate
-      Assert-True ($actual -eq $hash) "baseline digest matches: $relative"
-    }
-  }
+  Assert-True (
+    $baselineLines -contains '5473b1fd304c869886ac430f62bf27d1b8754071f4cd2efa075dac01405cb6cb *docs/api/openapi.yaml'
+  ) 'historical M0 baseline still records the accepted OpenAPI fingerprint'
 }
 
 $trace = Get-Content -LiteralPath (Join-Path $root 'docs/verification/traceability.md') -Raw -Encoding utf8

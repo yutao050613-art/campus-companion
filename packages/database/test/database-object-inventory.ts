@@ -22,7 +22,9 @@ export const expectedDatabaseObjectInventory = {
     "ServiceOrder_campus_user_fkey",
     "StudentVerification_last4_length_check",
     "StudentVerification_state_time_check",
+    "VerificationAssetAccessGrant_exact_asset_fkey",
     "VerificationAssetAccessGrant_lifetime_check",
+    "VerificationAssetAccessGrant_verificationAssetId_fkey",
   ],
   functions: [
     "consume_verification_asset_access_grant",
@@ -57,6 +59,10 @@ export const databaseObjectInventorySql = {
          OR constraint_object.conname LIKE 'StudentVerification_%_check'
          OR constraint_object.conname LIKE 'ContactAccessLog_%_check'
          OR constraint_object.conname = 'VerificationAssetAccessGrant_lifetime_check'
+         OR constraint_object.conname IN (
+           'VerificationAssetAccessGrant_exact_asset_fkey',
+           'VerificationAssetAccessGrant_verificationAssetId_fkey'
+         )
        )
      ORDER BY constraint_object.conname
   `,

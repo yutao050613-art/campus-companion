@@ -4,6 +4,7 @@ const REDACT_PATHS = [
   "req.headers.authorization",
   "req.headers.cookie",
   "req.headers.x-verification-asset-grant",
+  "req.headers.x-csrf-token",
   "res.headers.set-cookie",
   "accessToken",
   "refreshToken",
@@ -16,6 +17,11 @@ const REDACT_PATHS = [
   "apiV3Key",
   "privateKey",
   "totpSecret",
+  "password",
+  "totpCode",
+  "reauthTotpCode",
+  "csrfToken",
+  "sessionToken",
   "*.accessToken",
   "*.refreshToken",
   "*.code",
@@ -24,6 +30,11 @@ const REDACT_PATHS = [
   "*.uploadUrl",
   "*.grantToken",
   "*.objectKey",
+  "*.password",
+  "*.totpCode",
+  "*.reauthTotpCode",
+  "*.csrfToken",
+  "*.sessionToken",
 ] as const;
 
 export interface LoggerOptions {

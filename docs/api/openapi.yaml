@@ -221,9 +221,20 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [uploadEtag]
+              required: [uploads]
               properties:
-                uploadEtag: { type: string, minLength: 1, maxLength: 128 }
+                uploads:
+                  type: array
+                  minItems: 1
+                  maxItems: 2
+                  uniqueItems: true
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [type, uploadEtag]
+                    properties:
+                      type: { $ref: '#/components/schemas/VerificationAssetType' }
+                      uploadEtag: { type: string, pattern: '^[A-Fa-f0-9]{64}$' }
       responses:
         '202':
           description: 材料已验证并进入人工审核队列
@@ -249,6 +260,21 @@ paths:
           required: true
           schema: { $ref: '#/components/schemas/Uuid' }
         - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [evidenceTypes]
+              properties:
+                evidenceTypes:
+                  type: array
+                  minItems: 1
+                  maxItems: 2
+                  uniqueItems: true
+                  items: { $ref: '#/components/schemas/VerificationAssetType' }
       responses:
         '201':
           description: 已创建补交上传凭证并保留历史审核时间
@@ -883,12 +909,13 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [reauthTotpCode]
+              required: [assetType, reauthTotpCode]
               properties:
+                assetType: { $ref: '#/components/schemas/VerificationAssetType' }
                 reauthTotpCode: { type: string, pattern: '^[0-9]{6}$' }
       responses:
         '201':
-          description: 凭证已在审计写入后签发；绑定当前管理员会话、校区、申请和对象，最长60秒且仅可消费一次
+          description: 凭证已在审计写入后签发；绑定当前管理员会话、校区、申请和确切材料，最长60秒且仅可消费一次
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VerificationAssetAccessResponse' }
@@ -1156,21 +1183,39 @@ components:
     CreateVerificationRequest:
       type: object
       additionalProperties: false
-      required: [campusId, studentNumber, genderDeclaration, sensitiveInfoConsentVersion]
+      required: [campusId, studentNumber, genderDeclaration, sensitiveInfoConsentVersion, evidenceTypes]
       properties:
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumber: { type: string, minLength: 4, maxLength: 64, writeOnly: true }
         genderDeclaration: { type: string, enum: [MALE, FEMALE, UNDISCLOSED] }
         sensitiveInfoConsentVersion: { type: string, minLength: 1, maxLength: 50 }
+        evidenceTypes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/VerificationAssetType' }
+    VerificationAssetType:
+      type: string
+      enum: [STUDENT_CARD, WECOM_SCREENSHOT]
     VerificationUploadResponse:
       type: object
       additionalProperties: false
-      required: [verification, objectKey, uploadUrl, uploadExpiresAt]
+      required: [verification, uploads]
       properties:
         verification: { $ref: '#/components/schemas/VerificationUploadReady' }
-        objectKey: { type: string }
-        uploadUrl: { type: string, format: uri, readOnly: true }
-        uploadExpiresAt: { type: string, format: date-time }
+        uploads:
+          type: array
+          minItems: 1
+          maxItems: 2
+          items:
+            type: object
+            additionalProperties: false
+            required: [type, uploadUrl, uploadExpiresAt]
+            properties:
+              type: { $ref: '#/components/schemas/VerificationAssetType' }
+              uploadUrl: { type: string, format: uri, readOnly: true }
+              uploadExpiresAt: { type: string, format: date-time }
     VerificationStatus:
       type: string
       enum:
@@ -1218,12 +1263,13 @@ components:
     VerificationAwaitingUpload:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: AWAITING_UPLOAD }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: 'null' }
         latestSubmittedAt: { type: 'null' }
         reviewedAt: { type: 'null' }
@@ -1234,6 +1280,7 @@ components:
         campusId: 00000000-0000-0000-0000-000000000001
         studentNumberLast4: '1234'
         status: AWAITING_UPLOAD
+        evidenceTypes: [STUDENT_CARD]
         submittedAt: null
         latestSubmittedAt: null
         reviewedAt: null
@@ -1242,12 +1289,13 @@ components:
     VerificationUploadExpired:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: UPLOAD_EXPIRED }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: 'null' }
         latestSubmittedAt: { type: 'null' }
         reviewedAt: { type: 'null' }
@@ -1256,12 +1304,13 @@ components:
     VerificationPending:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: PENDING }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: string, format: date-time }
         latestSubmittedAt: { type: string, format: date-time }
         reviewedAt: { type: 'null' }
@@ -1270,12 +1319,13 @@ components:
     VerificationVerified:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: VERIFIED }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: string, format: date-time }
         latestSubmittedAt: { type: string, format: date-time }
         reviewedAt: { type: string, format: date-time }
@@ -1284,12 +1334,13 @@ components:
     VerificationRejected:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: REJECTED }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: string, format: date-time }
         latestSubmittedAt: { type: string, format: date-time }
         reviewedAt: { type: string, format: date-time }
@@ -1298,12 +1349,13 @@ components:
     VerificationRequiresResubmission:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: REQUIRE_RESUBMISSION }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: string, format: date-time }
         latestSubmittedAt: { type: string, format: date-time }
         reviewedAt: { type: string, format: date-time }
@@ -1312,12 +1364,13 @@ components:
     VerificationCredentialExpired:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: VERIFICATION_EXPIRED }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: string, format: date-time }
         latestSubmittedAt: { type: string, format: date-time }
         reviewedAt: { type: string, format: date-time }
@@ -1326,12 +1379,13 @@ components:
     VerificationResubmissionAwaitingUpload:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: RESUBMISSION_AWAITING_UPLOAD }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: string, format: date-time }
         latestSubmittedAt: { type: string, format: date-time }
         reviewedAt: { type: string, format: date-time }
@@ -1340,12 +1394,13 @@ components:
     VerificationResubmissionPending:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      required: [id, campusId, studentNumberLast4, status, evidenceTypes, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
         studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
         status: { type: string, const: RESUBMISSION_PENDING }
+        evidenceTypes: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { $ref: '#/components/schemas/VerificationAssetType' } }
         submittedAt: { type: string, format: date-time }
         latestSubmittedAt: { type: string, format: date-time }
         reviewedAt: { type: string, format: date-time }
@@ -1583,7 +1638,7 @@ components:
     AdminVerification:
       type: object
       additionalProperties: false
-      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, assetAvailable]
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, availableAssetTypes]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         campusId: { $ref: '#/components/schemas/Uuid' }
@@ -1592,7 +1647,11 @@ components:
         submittedAt: { type: [string, 'null'], format: date-time }
         latestSubmittedAt: { type: [string, 'null'], format: date-time }
         reviewedAt: { type: [string, 'null'], format: date-time }
-        assetAvailable: { type: boolean }
+        availableAssetTypes:
+          type: array
+          maxItems: 2
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/VerificationAssetType' }
         reasonCode: { type: [string, 'null'], maxLength: 100 }
     AdminVerificationPage:
       type: object

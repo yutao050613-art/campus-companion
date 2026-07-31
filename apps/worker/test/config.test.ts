@@ -18,4 +18,10 @@ describe("worker configuration", () => {
       loadWorkerConfig({ REDIS_URL: "redis://localhost", QUEUE_PREFIX: "../escape" }),
     ).toThrow();
   });
+
+  it("requires persistence credentials in production", () => {
+    expect(() =>
+      loadWorkerConfig({ NODE_ENV: "production", REDIS_URL: "rediss://redis.example.invalid" }),
+    ).toThrow("worker database and object-store credentials are required");
+  });
 });
