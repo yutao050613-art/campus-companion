@@ -1,0 +1,4 @@
+{
+  "desc": "M1 工程壳不允许被微信索引",
+  "rules": [{ "action": "disallow", "page": "*" }]
+}

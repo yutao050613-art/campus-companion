@@ -1,0 +1,3 @@
+# Candidate fingerprint only; this is not an approval or immutable release baseline.
+# Freeze only after PostgreSQL 16 deploy/status gates and owner reset approval pass.
+6d893aa089650d72b717546960679aad1f3f61abe8b32ba07ed2a623ad605902 *packages/database/prisma/migrations/20260715000000_m1_final_state_candidate/migration.sql

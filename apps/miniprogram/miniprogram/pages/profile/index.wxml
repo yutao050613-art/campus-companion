@@ -1,0 +1,2 @@
+<view class="page"><view class="card"><view>{{title}}</view><text class="muted">{{state}}</text></view></view>
+

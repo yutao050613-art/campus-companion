@@ -1,0 +1,18 @@
+{
+  "description": "校园同行微信小程序",
+  "miniprogramRoot": "miniprogram/",
+  "setting": {
+    "useCompilerPlugins": ["typescript"],
+    "es6": true,
+    "minified": true,
+    "urlCheck": true,
+    "checkInvalidKey": true,
+    "checkSiteMap": true,
+    "uploadWithSourceMap": true
+  },
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "campus-companion",
+  "simulatorType": "wechat",
+  "condition": {}
+}

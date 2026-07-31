@@ -1,0 +1,22 @@
+{
+  "name": "@campus/database",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "prisma generate",
+    "typecheck": "node scripts/validate-schema.mjs && prisma generate && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "db:format": "prisma format",
+    "db:generate": "prisma generate",
+    "db:validate": "node scripts/validate-schema.mjs",
+    "db:migrate": "prisma migrate deploy",
+    "db:status": "prisma migrate status"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.4",
+    "prisma": "6.19.2"
+  }
+}

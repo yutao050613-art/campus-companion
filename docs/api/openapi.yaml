@@ -1,0 +1,1691 @@
+openapi: 3.1.0
+info:
+  title: Campus Companion API
+  version: 0.4.0-m1-baseline-freeze
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  description: >-
+    校园同行信息撮合 API。契约只覆盖学生认证、固定路线、乘客组队、
+    信息服务费和联系方式授权，不包含司机、车辆、运价或运输履约。
+servers:
+  - url: https://api.example.invalid/v1
+    description: Placeholder; M6 才配置真实域名
+tags:
+  - name: Auth
+    description: User sessions, profile and account lifecycle.
+  - name: Verification
+    description: Student verification submission and status.
+  - name: Catalog
+    description: Campuses, fixed routes and service health.
+  - name: Demands
+    description: Authenticated passenger travel demands.
+  - name: Groups
+    description: Passenger-only group formation and contact delivery.
+  - name: Payments
+    description: Information-service orders, payments and refunds.
+  - name: Trust
+    description: Blocking, reporting and user safety controls.
+  - name: Admin
+    description: Campus-scoped operations protected by administrator MFA.
+security:
+  - bearerAuth: []
+x-idempotency-policy:
+  businessWrites: >-
+    客户端业务写操作使用 Idempotency-Key；键绑定认证主体、operationId 与规范化请求摘要，
+    保留24小时。同键同摘要重放原结果，同键不同摘要返回409 IDEMPOTENCY_CONFLICT。
+  authentication: >-
+    登录 code 单次消费；Refresh Token family 单次轮换且并发刷新仅一个成功；重复登出安全收敛。
+  callbacks: >-
+    微信回调按通知ID、平台事务号、商户订单号和密文摘要幂等，并只允许状态单调前进；
+    外部回调不接受客户端 Idempotency-Key。
+  oneTimeCredentials: >-
+    一次性材料访问凭证不接受 Idempotency-Key；凭证只通过专用请求头提交，
+    由数据库条件更新原子消费，任何重放、过期、错会话或错校区请求统一失败。
+paths:
+  /health:
+    get:
+      tags: [Catalog]
+      security: []
+      operationId: getHealth
+      summary: 基础存活检查，不访问敏感数据
+      responses:
+        '200':
+          description: API 正常
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, service, version, timestamp]
+                properties:
+                  status: { type: string, const: ok }
+                  service: { type: string, const: campus-api }
+                  version: { type: string }
+                  timestamp: { type: string, format: date-time }
+  /auth/wechat/login:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: wechatLogin
+      summary: 使用一次性 wx.login code 换取平台会话
+      description: 同一个微信 code 只能消费一次；重放不得创建第二个会话。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WechatLoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: refreshSession
+      summary: 轮换刷新令牌
+      description: Refresh Token family 单次轮换；并发刷新只允许一个请求成功，检测到已轮换令牌重放时撤销该 family。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string, minLength: 32, maxLength: 2048 }
+      responses:
+        '200':
+          description: 刷新成功，旧令牌立即失效
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current platform session
+      operationId: logout
+      description: 对同一可识别会话重复调用安全返回，不恢复或新建会话。
+      responses:
+        '204': { description: 当前会话已撤销 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /me:
+    get:
+      tags: [Auth]
+      summary: Get the authenticated user profile
+      operationId: getMe
+      responses:
+        '200':
+          description: 当前用户（不返回联系方式明文）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [Auth]
+      summary: Request account deletion
+      operationId: requestAccountDeletion
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202': { description: 注销任务已受理 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /me/contact:
+    put:
+      tags: [Auth]
+      summary: Replace the encrypted WeChat contact identifier
+      operationId: updateMyContact
+      description: 服务端校验后加密保存；响应不回显微信号明文。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [wechatId]
+              properties:
+                wechatId:
+                  type: string
+                  minLength: 6
+                  maxLength: 32
+                  pattern: '^[A-Za-z][-_A-Za-z0-9]{5,31}$'
+      responses:
+        '204': { description: 已加密保存且不会回显明文 }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /verifications:
+    post:
+      tags: [Verification]
+      summary: Create a student verification draft
+      operationId: createVerification
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateVerificationRequest' }
+      responses:
+        '201':
+          description: 已创建申请和短期私有上传凭证
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationUploadResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      tags: [Verification]
+      summary: Get the current student verification
+      operationId: getCurrentVerification
+      responses:
+        '200':
+          description: 当前申请状态；不返回材料 URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Verification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /verifications/{verificationId}/submit:
+    post:
+      tags: [Verification]
+      summary: Submit a verification draft for manual review
+      operationId: submitVerification
+      description: >-
+        服务端对自己生成的对象键执行HEAD检查，验证大小、类型和摘要后进入审核队列。
+        首次提交进入PENDING并同时写入submittedAt/latestSubmittedAt；补交进入
+        RESUBMISSION_PENDING，仅更新latestSubmittedAt并保留原submittedAt/reviewedAt。
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [uploadEtag]
+              properties:
+                uploadEtag: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        '202':
+          description: 材料已验证并进入人工审核队列
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Verification' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /verifications/{verificationId}/resubmission-upload:
+    post:
+      tags: [Verification]
+      summary: Create a replacement upload credential after a resubmission decision
+      operationId: createResubmissionUpload
+      description: >-
+        仅允许REQUIRE_RESUBMISSION进入RESUBMISSION_AWAITING_UPLOAD；旧材料立即失效并进入删除，
+        原submittedAt、latestSubmittedAt和reviewedAt不得被清空或改写。
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: 已创建补交上传凭证并保留历史审核时间
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationUploadResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /campuses:
+    get:
+      tags: [Catalog]
+      summary: List enabled campuses
+      operationId: listCampuses
+      security: []
+      responses:
+        '200':
+          description: 已启用校区
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Campus' }
+  /campuses/{campusId}/routes:
+    get:
+      tags: [Catalog]
+      summary: List enabled fixed routes for a campus
+      operationId: listCampusRoutes
+      security: []
+      description: 公开低敏感目录；只返回已启用路线和聚合时间窗，不包含组、需求、用户或实时人数。
+      parameters:
+        - $ref: '#/components/parameters/CampusId'
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 固定方向路线及可选时间窗
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Route' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /demands:
+    post:
+      tags: [Demands]
+      summary: Publish a passenger travel demand
+      operationId: createDemand
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDemandRequest' }
+      responses:
+        '201':
+          description: 需求已创建；可能同时创建候选组
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Demand' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      tags: [Demands]
+      summary: List the authenticated user's travel demands
+      operationId: listMyDemands
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 当前用户需求
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DemandPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /demands/{demandId}:
+    get:
+      tags: [Demands]
+      summary: Get a permitted travel demand view
+      operationId: getDemand
+      parameters:
+        - $ref: '#/components/parameters/DemandId'
+      responses:
+        '200':
+          description: 仅本人可见的需求详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Demand' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Demands]
+      summary: Cancel an owned travel demand
+      operationId: cancelDemand
+      parameters:
+        - $ref: '#/components/parameters/DemandId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204': { description: 已撤销；锁定轮次中不允许直接撤销 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /groups:
+    get:
+      tags: [Groups]
+      summary: List matching passenger groups
+      operationId: listGroups
+      parameters:
+        - name: routeId
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: windowStart
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 可加入候选组；成员信息匿名化
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /groups/{groupId}:
+    get:
+      tags: [Groups]
+      summary: Get a masked passenger group view
+      operationId: getGroup
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '200':
+          description: 组详情；解锁前绝不包含微信号
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /groups/{groupId}/join:
+    post:
+      tags: [Groups]
+      summary: Join a passenger group transactionally
+      operationId: joinGroup
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [demandId]
+              properties:
+                demandId: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: 事务加入后的组快照
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /groups/{groupId}/leave:
+    post:
+      tags: [Groups]
+      summary: Leave a passenger group
+      operationId: leaveGroup
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 离开后的组快照
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /groups/{groupId}/formation-rounds:
+    post:
+      tags: [Groups]
+      summary: Start a time-limited formation confirmation round
+      operationId: startFormationRound
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: 已创建不可变成员快照，默认5分钟确认
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FormationRound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /formation-rounds/{roundId}/confirm:
+    post:
+      tags: [Groups]
+      summary: Accept or decline a formation round
+      operationId: confirmFormationRound
+      parameters:
+        - $ref: '#/components/parameters/RoundId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FormationConfirmationRequest' }
+      responses:
+        '200':
+          description: 最新轮次状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FormationRound' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /formation-rounds/{roundId}/contact-consent:
+    delete:
+      tags: [Groups]
+      summary: Revoke contact-sharing consent for a formation round
+      operationId: revokeContactConsent
+      description: >-
+        解锁前撤回使本轮进入全额退款补偿；解锁后撤回阻止该成员作为查看者或被查看者的后续读取，
+        但无法从其他成员设备收回已经展示的明文。
+      parameters:
+        - $ref: '#/components/parameters/RoundId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204': { description: 撤回已记录并按当前交付阶段执行后果 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /groups/{groupId}/service-orders:
+    post:
+      tags: [Payments]
+      summary: Create the authenticated member's service order
+      operationId: createServiceOrder
+      description: 客户端不得提交金额；服务端按有效账号和配置版本计算99分。
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [roundId]
+              properties:
+                roundId: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '201':
+          description: 当前账号的服务订单
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceOrder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /service-orders/{orderId}/prepay:
+    post:
+      tags: [Payments]
+      summary: Create provider prepayment parameters
+      operationId: createPrepay
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 小程序调起模拟/微信支付所需短期参数
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrepayResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /service-orders/{orderId}:
+    get:
+      tags: [Payments]
+      summary: Get an owned information-service order
+      operationId: getServiceOrder
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: 服务端确认的订单状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceOrder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /payments/wechat/notify:
+    post:
+      tags: [Payments]
+      summary: Process an authenticated WeChat payment notification
+      operationId: handleWechatPaymentNotification
+      security: []
+      x-idempotency-key-source: provider-notification
+      description: >-
+        必须在读取业务内容前验证签名并解密；按通知ID、平台事务号、商户订单号和密文摘要幂等，
+        只允许状态单调前进，不接受 Idempotency-Key。
+      parameters:
+        - name: Wechatpay-Signature
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Wechatpay-Timestamp
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Wechatpay-Nonce
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Wechatpay-Serial
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '204': { description: 已验签并幂等受理 }
+        '400': { description: 验签、时间窗或解密失败 }
+  /groups/{groupId}/contacts:
+    get:
+      tags: [Groups]
+      summary: Get contacts after all delivery invariants pass
+      operationId: getUnlockedContacts
+      description: >-
+        响应采用全有或全无（all-or-nothing）语义：只要锁定快照中的任一成员已撤回同意，本次请求整体拒绝，
+        不返回部分联系人。成功读取记录锁定政策版本、披露人数和规范化被披露账号集合摘要，
+        但绝不记录微信号明文。
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '200':
+          description: 仅当前已解锁轮次成员；读取会写审计记录
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 1
+                items: { $ref: '#/components/schemas/UnlockedContact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 联系方式尚未解锁；禁止使用200空数组掩盖状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /refunds:
+    post:
+      tags: [Payments]
+      summary: Request a refund allowed by platform policy
+      operationId: requestRefund
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [orderId, reason]
+              properties:
+                orderId: { $ref: '#/components/schemas/Uuid' }
+                reason:
+                  type: string
+                  enum: [PLATFORM_NOT_DELIVERED, DUPLICATE_CHARGE, OTHER]
+                note: { type: string, maxLength: 500 }
+      responses:
+        '202':
+          description: 退款资格已受理或进入人工审核
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refund' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /refunds/{refundId}:
+    get:
+      tags: [Payments]
+      summary: Get an owned refund request
+      operationId: getRefund
+      parameters:
+        - name: refundId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: 退款状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refund' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /refunds/wechat/notify:
+    post:
+      tags: [Payments]
+      summary: Process an authenticated WeChat refund notification
+      operationId: handleWechatRefundNotification
+      security: []
+      x-idempotency-key-source: provider-notification
+      description: >-
+        验签并解密退款通知；按通知ID、平台退款号、商户订单号和密文摘要幂等，
+        重复和乱序通知不得回退退款终态，不接受 Idempotency-Key。
+      parameters:
+        - name: Wechatpay-Signature
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Wechatpay-Timestamp
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Wechatpay-Nonce
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Wechatpay-Serial
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '204': { description: 已验签并幂等受理 }
+        '400': { description: 验签、时间窗或解密失败 }
+  /reports:
+    post:
+      tags: [Trust]
+      summary: Report a user or passenger group
+      operationId: createReport
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateReportRequest' }
+      responses:
+        '201': { description: 举报已创建 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /blocks/{userId}:
+    put:
+      tags: [Trust]
+      summary: Block another user from future matching
+      operationId: blockUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204': { description: 已拉黑，双方不再进入同一新组 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Trust]
+      summary: Remove an existing block relation
+      operationId: unblockUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204': { description: 已解除拉黑 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/auth/login:
+    post:
+      tags: [Admin]
+      security: []
+      summary: Create an administrator session using password and TOTP
+      operationId: adminLogin
+      description: >-
+        成功后签发 __Host-admin_session Cookie（Secure; HttpOnly; SameSite=Strict; Path=/）并在响应体返回
+        与该会话绑定的 CSRF Token；登录、权限提升和主动轮换都会更换 CSRF Token。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, password, totpCode]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 100 }
+                password: { type: string, minLength: 12, maxLength: 256 }
+                totpCode: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: 管理员会话和初始 CSRF Token 已签发
+          headers:
+            Set-Cookie:
+              description: __Host-admin_session; Secure; HttpOnly; SameSite=Strict; Path=/；短时、不可跨环境复用
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSessionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /admin/auth/csrf:
+    post:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+      summary: Rotate the CSRF token bound to the current administrator session
+      operationId: rotateAdminCsrfToken
+      description: >-
+        不使用业务幂等键。必须有 SameSite=Strict 管理员 Cookie、可信 Origin 和 Fetch Metadata；
+        返回新 Token 后旧 Token 最多保留30秒并行窗口，然后失效。
+      parameters:
+        - name: Origin
+          in: header
+          required: true
+          schema: { type: string, format: uri }
+      responses:
+        '200':
+          description: 已轮换 CSRF Token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminCsrfResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/auth/logout:
+    post:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: Revoke the current administrator session
+      operationId: adminLogout
+      description: 重复调用安全收敛到会话已撤销；不得恢复旧 Cookie 或 CSRF Token。
+      responses:
+        '204': { description: 管理员会话已撤销 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/verifications:
+    get:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: List campus-scoped verification metadata without asset addresses
+      operationId: listAdminVerifications
+      x-required-roles: [VERIFICATION_REVIEWER]
+      x-campus-scope: required
+      parameters:
+        - name: campusId
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 脱敏审核元数据；不含 objectKey、URL 或微信号
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminVerificationPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/verifications/{verificationId}:
+    get:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: Get campus-scoped verification metadata without asset addresses
+      operationId: getAdminVerification
+      x-required-roles: [VERIFICATION_REVIEWER]
+      x-campus-scope: required
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: 脱敏审核元数据
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminVerification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/verifications/{verificationId}/asset-access:
+    post:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: Issue a short-lived single-use verification asset access grant
+      operationId: issueVerificationAssetAccess
+      x-required-roles: [VERIFICATION_REVIEWER]
+      x-campus-scope: required
+      x-sensitive-action: totp-reauthentication
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reauthTotpCode]
+              properties:
+                reauthTotpCode: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '201':
+          description: 凭证已在审计写入后签发；绑定当前管理员会话、校区、申请和对象，最长60秒且仅可消费一次
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationAssetAccessResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /admin/verification-assets/consume:
+    post:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: Atomically consume a single-use verification asset grant and proxy the asset
+      operationId: consumeVerificationAssetGrant
+      description: >-
+        该端点是唯一材料读取入口，不重定向且不返回COS地址。数据库在同一事务中按令牌摘要、
+        管理员会话、校区、未过期、未使用和对象未删除条件原子写usedAt与追加审计，然后由API
+        流式代理材料。读取中途失败仍视为已消费，管理员必须重新TOTP认证申请新凭证；本操作
+        不接受Idempotency-Key。无效、过期、已用、错会话、错校区或对象已删除统一返回防枚举404。
+      x-required-roles: [VERIFICATION_REVIEWER]
+      x-campus-scope: derived-from-single-use-grant
+      x-sensitive-action: atomic-single-use-consumption
+      x-replay-protection: database-conditional-update
+      parameters:
+        - $ref: '#/components/parameters/VerificationAssetGrantToken'
+      responses:
+        '200':
+          description: 材料由平台受控代理流式返回；响应不得缓存
+          headers:
+            Cache-Control:
+              schema: { type: string, const: 'private, no-store' }
+            X-Content-Type-Options:
+              schema: { type: string, const: nosniff }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/verifications/{verificationId}/decision:
+    post:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: Record a campus-scoped verification decision
+      operationId: reviewVerification
+      x-required-roles: [VERIFICATION_REVIEWER]
+      x-campus-scope: required
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVE, REJECT, REQUIRE_RESUBMISSION] }
+                reasonCode: { type: string, maxLength: 100 }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '200': { description: 审核决定和材料删除任务已原子创建 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /admin/routes:
+    post:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: Create a campus-scoped fixed passenger route
+      operationId: createRoute
+      x-required-roles: [ROUTE_MANAGER]
+      x-campus-scope: required
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminCreateRouteRequest' }
+      responses:
+        '201': { description: 路线已创建并写入审计日志 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /admin/refunds/{refundId}/decision:
+    post:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: Record an audited refund decision
+      operationId: reviewRefund
+      x-required-roles: [REFUND_REVIEWER]
+      x-campus-scope: required
+      x-sensitive-action: totp-reauthentication
+      parameters:
+        - name: refundId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, reauthTotpCode]
+              properties:
+                decision: { type: string, enum: [APPROVE, REJECT] }
+                reauthTotpCode: { type: string, pattern: '^[0-9]{6}$' }
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '202': { description: 已记录决定；批准时创建退款任务 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    adminCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-admin_session
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        绑定认证主体、operationId 与规范化请求摘要并保留24小时；同键同摘要返回首次结果，
+        同键不同摘要返回409 IDEMPOTENCY_CONFLICT。不得用于登录、刷新、登出或微信回调。
+      schema: { type: string, minLength: 16, maxLength: 128 }
+    VerificationAssetGrantToken:
+      name: X-Verification-Asset-Grant
+      in: header
+      required: true
+      description: >-
+        高熵一次性凭证原文；仅此请求头允许携带。网关、应用日志、链路、错误和审计必须按字段名
+        完整脱敏，数据库只保存SHA-256/HMAC摘要。
+      schema: { type: string, minLength: 43, maxLength: 256, pattern: '^[A-Za-z0-9_-]+$' }
+    CampusId:
+      name: campusId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    DemandId:
+      name: demandId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    RoundId:
+      name: roundId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string, maxLength: 256 }
+  responses:
+    ValidationError:
+      description: 输入不合法
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: 未登录或会话失效
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: 认证、权限、资源归属或风控检查失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: 资源不存在或为防枚举而隐藏
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: 当前状态不允许操作或幂等键冲突
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RateLimited:
+      description: 请求频率受限
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    WechatLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 128 }
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, refreshToken, expiresInSeconds, user]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresInSeconds: { type: integer, minimum: 60, maximum: 3600 }
+        user: { $ref: '#/components/schemas/Me' }
+    Me:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, accountStatus, verificationStatus, genderDeclaration]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        accountStatus: { type: string, enum: [ACTIVE, RESTRICTED, DELETION_PENDING] }
+        verificationStatus:
+          oneOf:
+            - { type: string, const: NOT_SUBMITTED }
+            - { $ref: '#/components/schemas/VerificationStatus' }
+        genderDeclaration: { type: string, enum: [MALE, FEMALE, UNDISCLOSED] }
+        hasWechatContact: { type: boolean }
+    CreateVerificationRequest:
+      type: object
+      additionalProperties: false
+      required: [campusId, studentNumber, genderDeclaration, sensitiveInfoConsentVersion]
+      properties:
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumber: { type: string, minLength: 4, maxLength: 64, writeOnly: true }
+        genderDeclaration: { type: string, enum: [MALE, FEMALE, UNDISCLOSED] }
+        sensitiveInfoConsentVersion: { type: string, minLength: 1, maxLength: 50 }
+    VerificationUploadResponse:
+      type: object
+      additionalProperties: false
+      required: [verification, objectKey, uploadUrl, uploadExpiresAt]
+      properties:
+        verification: { $ref: '#/components/schemas/VerificationUploadReady' }
+        objectKey: { type: string }
+        uploadUrl: { type: string, format: uri, readOnly: true }
+        uploadExpiresAt: { type: string, format: date-time }
+    VerificationStatus:
+      type: string
+      enum:
+        - AWAITING_UPLOAD
+        - UPLOAD_EXPIRED
+        - PENDING
+        - VERIFIED
+        - REJECTED
+        - REQUIRE_RESUBMISSION
+        - RESUBMISSION_AWAITING_UPLOAD
+        - RESUBMISSION_PENDING
+        - VERIFICATION_EXPIRED
+    VerificationUploadReady:
+      oneOf:
+        - $ref: '#/components/schemas/VerificationAwaitingUpload'
+        - $ref: '#/components/schemas/VerificationResubmissionAwaitingUpload'
+      discriminator:
+        propertyName: status
+        mapping:
+          AWAITING_UPLOAD: '#/components/schemas/VerificationAwaitingUpload'
+          RESUBMISSION_AWAITING_UPLOAD: '#/components/schemas/VerificationResubmissionAwaitingUpload'
+    Verification:
+      oneOf:
+        - $ref: '#/components/schemas/VerificationAwaitingUpload'
+        - $ref: '#/components/schemas/VerificationUploadExpired'
+        - $ref: '#/components/schemas/VerificationPending'
+        - $ref: '#/components/schemas/VerificationVerified'
+        - $ref: '#/components/schemas/VerificationRejected'
+        - $ref: '#/components/schemas/VerificationRequiresResubmission'
+        - $ref: '#/components/schemas/VerificationCredentialExpired'
+        - $ref: '#/components/schemas/VerificationResubmissionAwaitingUpload'
+        - $ref: '#/components/schemas/VerificationResubmissionPending'
+      discriminator:
+        propertyName: status
+        mapping:
+          AWAITING_UPLOAD: '#/components/schemas/VerificationAwaitingUpload'
+          UPLOAD_EXPIRED: '#/components/schemas/VerificationUploadExpired'
+          PENDING: '#/components/schemas/VerificationPending'
+          VERIFIED: '#/components/schemas/VerificationVerified'
+          REJECTED: '#/components/schemas/VerificationRejected'
+          REQUIRE_RESUBMISSION: '#/components/schemas/VerificationRequiresResubmission'
+          RESUBMISSION_AWAITING_UPLOAD: '#/components/schemas/VerificationResubmissionAwaitingUpload'
+          RESUBMISSION_PENDING: '#/components/schemas/VerificationResubmissionPending'
+          VERIFICATION_EXPIRED: '#/components/schemas/VerificationCredentialExpired'
+    VerificationAwaitingUpload:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: AWAITING_UPLOAD }
+        submittedAt: { type: 'null' }
+        latestSubmittedAt: { type: 'null' }
+        reviewedAt: { type: 'null' }
+        expiresAt: { type: 'null' }
+        reasonCode: { type: 'null' }
+      example:
+        id: 00000000-0000-0000-0000-000000000101
+        campusId: 00000000-0000-0000-0000-000000000001
+        studentNumberLast4: '1234'
+        status: AWAITING_UPLOAD
+        submittedAt: null
+        latestSubmittedAt: null
+        reviewedAt: null
+        expiresAt: null
+        reasonCode: null
+    VerificationUploadExpired:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: UPLOAD_EXPIRED }
+        submittedAt: { type: 'null' }
+        latestSubmittedAt: { type: 'null' }
+        reviewedAt: { type: 'null' }
+        expiresAt: { type: 'null' }
+        reasonCode: { type: string, const: UPLOAD_CREDENTIAL_EXPIRED }
+    VerificationPending:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: PENDING }
+        submittedAt: { type: string, format: date-time }
+        latestSubmittedAt: { type: string, format: date-time }
+        reviewedAt: { type: 'null' }
+        expiresAt: { type: 'null' }
+        reasonCode: { type: 'null' }
+    VerificationVerified:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: VERIFIED }
+        submittedAt: { type: string, format: date-time }
+        latestSubmittedAt: { type: string, format: date-time }
+        reviewedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        reasonCode: { type: 'null' }
+    VerificationRejected:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: REJECTED }
+        submittedAt: { type: string, format: date-time }
+        latestSubmittedAt: { type: string, format: date-time }
+        reviewedAt: { type: string, format: date-time }
+        expiresAt: { type: 'null' }
+        reasonCode: { type: string, minLength: 1, maxLength: 100 }
+    VerificationRequiresResubmission:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: REQUIRE_RESUBMISSION }
+        submittedAt: { type: string, format: date-time }
+        latestSubmittedAt: { type: string, format: date-time }
+        reviewedAt: { type: string, format: date-time }
+        expiresAt: { type: 'null' }
+        reasonCode: { type: string, minLength: 1, maxLength: 100 }
+    VerificationCredentialExpired:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: VERIFICATION_EXPIRED }
+        submittedAt: { type: string, format: date-time }
+        latestSubmittedAt: { type: string, format: date-time }
+        reviewedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        reasonCode: { type: string, const: CREDENTIAL_EXPIRED }
+    VerificationResubmissionAwaitingUpload:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: RESUBMISSION_AWAITING_UPLOAD }
+        submittedAt: { type: string, format: date-time }
+        latestSubmittedAt: { type: string, format: date-time }
+        reviewedAt: { type: string, format: date-time }
+        expiresAt: { type: 'null' }
+        reasonCode: { type: string, minLength: 1, maxLength: 100 }
+    VerificationResubmissionPending:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, expiresAt, reasonCode]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { type: string, const: RESUBMISSION_PENDING }
+        submittedAt: { type: string, format: date-time }
+        latestSubmittedAt: { type: string, format: date-time }
+        reviewedAt: { type: string, format: date-time }
+        expiresAt: { type: 'null' }
+        reasonCode: { type: [string, 'null'], maxLength: 100 }
+    Campus:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+    Place:
+      type: object
+      additionalProperties: false
+      required: [id, name, type]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        type: { type: string, enum: [CAMPUS_GATE, TRANSIT_HUB, OTHER_FIXED] }
+    Route:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, origin, destination, windows]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        origin: { $ref: '#/components/schemas/Place' }
+        destination: { $ref: '#/components/schemas/Place' }
+        windows:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [start, end]
+            properties:
+              start: { type: string, format: date-time }
+              end: { type: string, format: date-time }
+    CreateDemandRequest:
+      type: object
+      additionalProperties: false
+      required: [routeId, windowStart, windowEnd, seatCount, luggage, genderPreference]
+      properties:
+        routeId: { $ref: '#/components/schemas/Uuid' }
+        windowStart: { type: string, format: date-time }
+        windowEnd: { type: string, format: date-time }
+        seatCount: { type: integer, minimum: 1, maximum: 3 }
+        luggage: { type: string, enum: [NONE, SMALL, LARGE] }
+        genderPreference: { type: string, enum: [ANY, SAME_GENDER_ONLY] }
+    Demand:
+      type: object
+      additionalProperties: false
+      required: [id, routeId, windowStart, windowEnd, seatCount, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        routeId: { $ref: '#/components/schemas/Uuid' }
+        groupId: { type: [string, 'null'], format: uuid }
+        windowStart: { type: string, format: date-time }
+        windowEnd: { type: string, format: date-time }
+        seatCount: { type: integer, minimum: 1, maximum: 3 }
+        status: { type: string, enum: [OPEN, GROUPED, CANCELLED, EXPIRED] }
+        createdAt: { type: string, format: date-time }
+    DemandPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Demand' }
+        nextCursor: { type: [string, 'null'] }
+    AnonymousMember:
+      type: object
+      additionalProperties: false
+      required: [memberId, displayName, seatCount, verified, joinedAt]
+      properties:
+        memberId: { $ref: '#/components/schemas/Uuid' }
+        displayName: { type: string, maxLength: 30 }
+        seatCount: { type: integer, minimum: 1, maximum: 3 }
+        verified: { type: boolean, const: true }
+        joinedAt: { type: string, format: date-time }
+    Group:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, routeId, windowStart, windowEnd, state, accountCount, occupiedSeats, remainingSeats, members, version]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        routeId: { $ref: '#/components/schemas/Uuid' }
+        windowStart: { type: string, format: date-time }
+        windowEnd: { type: string, format: date-time }
+        state: { $ref: '#/components/schemas/GroupState' }
+        accountCount: { type: integer, minimum: 1, maximum: 4 }
+        occupiedSeats: { type: integer, minimum: 1, maximum: 4 }
+        remainingSeats: { type: integer, minimum: 0, maximum: 3 }
+        members:
+          type: array
+          minItems: 1
+          maxItems: 4
+          items: { $ref: '#/components/schemas/AnonymousMember' }
+        activeRoundId: { type: [string, 'null'], format: uuid }
+        version: { type: integer, minimum: 1 }
+    GroupPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Group' }
+        nextCursor: { type: [string, 'null'] }
+    GroupState:
+      type: string
+      enum: [RECRUITING, READY, CONFIRMING, PAYING, REFUNDING, REFUND_RETRY, CONTACTS_UNLOCKED, COMPLETED, EXPIRED, RISK_HOLD, DISPUTED]
+    FormationRound:
+      type: object
+      additionalProperties: false
+      required: [id, groupId, state, memberCount, memberSnapshotHash, contactPolicyVersion, confirmBy, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        groupId: { $ref: '#/components/schemas/Uuid' }
+        state: { type: string, enum: [CONFIRMING, PAYING, DELIVERED, REFUNDING, REFUND_RETRY, INVALIDATED] }
+        memberCount: { type: integer, minimum: 2, maximum: 4 }
+        memberSnapshotHash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        contactPolicyVersion: { type: string, minLength: 1, maxLength: 50 }
+        confirmBy: { type: string, format: date-time }
+        payBy: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    FormationConfirmationRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [decision, contactConsent]
+          properties:
+            decision: { type: string, const: ACCEPT }
+            contactConsent:
+              type: object
+              additionalProperties: false
+              required: [granted, policyVersion]
+              properties:
+                granted: { type: boolean, const: true }
+                policyVersion:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  description: 必须与 FormationRound.contactPolicyVersion 完全一致，由服务端比较。
+        - type: object
+          additionalProperties: false
+          required: [decision]
+          properties:
+            decision: { type: string, const: DECLINE }
+    ServiceOrder:
+      type: object
+      additionalProperties: false
+      required: [id, roundId, amountFen, currency, pricingVersion, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        roundId: { $ref: '#/components/schemas/Uuid' }
+        amountFen: { type: integer, const: 99 }
+        currency: { type: string, const: CNY }
+        pricingVersion: { type: string }
+        status: { type: string, enum: [CREATED, PAYING, PAID, DELIVERED, CLOSED, REFUND_PENDING, REFUNDED, REFUND_FAILED] }
+        createdAt: { type: string, format: date-time }
+    PrepayResponse:
+      type: object
+      additionalProperties: false
+      required: [provider, expiresAt, parameters]
+      properties:
+        provider: { type: string, enum: [MOCK, WECHAT_PAY] }
+        expiresAt: { type: string, format: date-time }
+        parameters:
+          type: object
+          additionalProperties: { type: string }
+    Refund:
+      type: object
+      additionalProperties: false
+      required: [id, orderId, amountFen, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        orderId: { $ref: '#/components/schemas/Uuid' }
+        amountFen: { type: integer, minimum: 1, maximum: 99 }
+        status: { type: string, enum: [REQUESTED, REVIEW_REQUIRED, REFUND_PENDING, REFUNDED, REFUND_FAILED, REJECTED] }
+        createdAt: { type: string, format: date-time }
+    UnlockedContact:
+      type: object
+      additionalProperties: false
+      required: [userId, displayName, wechatId]
+      properties:
+        userId: { $ref: '#/components/schemas/Uuid' }
+        displayName: { type: string, maxLength: 30 }
+        wechatId: { type: string, minLength: 6, maxLength: 32 }
+    CreateReportRequest:
+      type: object
+      additionalProperties: false
+      required: [groupId, category, description]
+      properties:
+        groupId: { $ref: '#/components/schemas/Uuid' }
+        subjectUserId: { type: [string, 'null'], format: uuid }
+        category: { type: string, enum: [HARASSMENT, IMPERSONATION, NO_SHOW, PRIVACY, UNSAFE_BEHAVIOR, OTHER] }
+        description: { type: string, minLength: 1, maxLength: 1000 }
+    AdminCreateRouteRequest:
+      type: object
+      additionalProperties: false
+      required: [campusId, originId, destinationId, schedules]
+      properties:
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        originId: { $ref: '#/components/schemas/Uuid' }
+        destinationId: { $ref: '#/components/schemas/Uuid' }
+        schedules:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [weekday, startTime, endTime, windowMinutes]
+            properties:
+              weekday: { type: integer, minimum: 1, maximum: 7 }
+              startTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+              endTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+              windowMinutes: { type: integer, enum: [15, 30] }
+    AdminSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [csrfToken, csrfExpiresAt, sessionExpiresAt]
+      properties:
+        csrfToken: { type: string, minLength: 32, maxLength: 256, readOnly: true }
+        csrfExpiresAt: { type: string, format: date-time }
+        sessionExpiresAt: { type: string, format: date-time }
+    AdminCsrfResponse:
+      type: object
+      additionalProperties: false
+      required: [csrfToken, csrfExpiresAt]
+      properties:
+        csrfToken: { type: string, minLength: 32, maxLength: 256, readOnly: true }
+        csrfExpiresAt: { type: string, format: date-time }
+    AdminVerification:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, studentNumberLast4, status, submittedAt, latestSubmittedAt, reviewedAt, assetAvailable]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        studentNumberLast4: { type: string, pattern: '^[A-Za-z0-9]{4}$' }
+        status: { $ref: '#/components/schemas/VerificationStatus' }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        latestSubmittedAt: { type: [string, 'null'], format: date-time }
+        reviewedAt: { type: [string, 'null'], format: date-time }
+        assetAvailable: { type: boolean }
+        reasonCode: { type: [string, 'null'], maxLength: 100 }
+    AdminVerificationPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AdminVerification' }
+        nextCursor: { type: [string, 'null'], maxLength: 256 }
+    VerificationAssetAccessResponse:
+      type: object
+      additionalProperties: false
+      required: [consumePath, grantToken, expiresAt, singleUse]
+      properties:
+        consumePath:
+          type: string
+          const: /v1/admin/verification-assets/consume
+          readOnly: true
+          description: 固定的平台受控代理路径；不是COS地址且不包含凭证。
+        grantToken:
+          type: string
+          minLength: 43
+          maxLength: 256
+          pattern: '^[A-Za-z0-9_-]+$'
+          readOnly: true
+          description: 仅在本响应显示一次；客户端随后通过X-Verification-Asset-Grant请求头提交。
+        expiresAt: { type: string, format: date-time }
+        singleUse: { type: boolean, const: true }
+    FieldViolation:
+      type: object
+      additionalProperties: false
+      required: [field, constraint]
+      properties:
+        field: { type: string, minLength: 1, maxLength: 100 }
+        constraint: { type: string, minLength: 1, maxLength: 100 }
+    ErrorDetails:
+      type: object
+      additionalProperties: false
+      properties:
+        field: { type: string, minLength: 1, maxLength: 100 }
+        constraint: { type: string, minLength: 1, maxLength: 100 }
+        violations:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/FieldViolation' }
+        retryAfterSeconds: { type: integer, minimum: 1, maximum: 86400 }
+        currentVersion: { type: integer, minimum: 0 }
+        expectedVersion: { type: integer, minimum: 0 }
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - AUTH_REQUIRED
+                - SESSION_EXPIRED
+                - STUDENT_NOT_VERIFIED
+                - ACCOUNT_RESTRICTED
+                - RESOURCE_NOT_FOUND
+                - RESOURCE_FORBIDDEN
+                - IDEMPOTENCY_CONFLICT
+                - OVERLAPPING_ACTIVE_GROUP
+                - GROUP_NOT_JOINABLE
+                - GROUP_CAPACITY_EXCEEDED
+                - GENDER_PREFERENCE_INCOMPATIBLE
+                - FORMATION_NOT_READY
+                - FORMATION_EXPIRED
+                - PAYMENT_NOT_CONFIRMED
+                - CONTACTS_NOT_UNLOCKED
+                - CONTACT_CONSENT_REQUIRED
+                - CONTACT_CONSENT_VERSION_MISMATCH
+                - CONTACT_CONSENT_REVOKED
+                - GROUP_REFUND_IN_PROGRESS
+                - REFUND_NOT_ELIGIBLE
+                - ADMIN_CSRF_INVALID
+                - ADMIN_ROLE_REQUIRED
+                - ADMIN_CAMPUS_FORBIDDEN
+                - ADMIN_REAUTH_REQUIRED
+                - VERIFICATION_ASSET_INVALID
+                - VERIFICATION_UPLOAD_EXPIRED
+                - VERIFICATION_RESUBMISSION_REQUIRED
+                - VERIFICATION_ASSET_GRANT_UNAVAILABLE
+                - RATE_LIMITED
+                - INTERNAL_ERROR
+            message: { type: string, maxLength: 200 }
+            requestId: { type: string, maxLength: 100 }
+            details: { $ref: '#/components/schemas/ErrorDetails' }

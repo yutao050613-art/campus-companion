@@ -1,0 +1,19 @@
+{
+  "name": "@campus/worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@campus/observability": "workspace:*",
+    "bullmq": "5.79.3",
+    "zod": "4.4.3"
+  }
+}

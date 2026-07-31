@@ -1,0 +1,831 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountStatus {
+  ACTIVE
+  RESTRICTED
+  DELETION_PENDING
+  DELETED
+}
+
+enum GenderDeclaration {
+  MALE
+  FEMALE
+  UNDISCLOSED
+}
+
+enum VerificationStatus {
+  AWAITING_UPLOAD
+  UPLOAD_EXPIRED
+  PENDING
+  VERIFIED
+  REJECTED
+  REQUIRE_RESUBMISSION
+  RESUBMISSION_AWAITING_UPLOAD
+  RESUBMISSION_PENDING
+  VERIFICATION_EXPIRED
+}
+
+enum CatalogStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PlaceType {
+  CAMPUS_GATE
+  TRANSIT_HUB
+  OTHER_FIXED
+}
+
+enum LuggageSize {
+  NONE
+  SMALL
+  LARGE
+}
+
+enum GenderPreference {
+  ANY
+  SAME_GENDER_ONLY
+}
+
+enum DemandStatus {
+  OPEN
+  GROUPED
+  CANCELLED
+  EXPIRED
+}
+
+enum GroupState {
+  RECRUITING
+  READY
+  CONFIRMING
+  PAYING
+  REFUNDING
+  REFUND_RETRY
+  CONTACTS_UNLOCKED
+  COMPLETED
+  EXPIRED
+  RISK_HOLD
+  DISPUTED
+}
+
+enum MemberStatus {
+  JOINED
+  CONFIRMED
+  PAYMENT_PENDING
+  PAID
+  CONTACT_UNLOCKED
+  LEFT
+  DECLINED
+  PAYMENT_TIMEOUT
+  REMOVED
+  REFUNDED
+}
+
+enum RoundState {
+  CONFIRMING
+  PAYING
+  DELIVERED
+  REFUNDING
+  REFUND_RETRY
+  INVALIDATED
+}
+
+enum ConfirmationDecision {
+  ACCEPT
+  DECLINE
+}
+
+enum OrderStatus {
+  CREATED
+  PAYING
+  PAID
+  DELIVERED
+  CLOSED
+  REFUND_PENDING
+  REFUNDED
+  REFUND_FAILED
+}
+
+enum PaymentProvider {
+  MOCK
+  WECHAT_PAY
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum RefundReason {
+  PLATFORM_NOT_DELIVERED
+  DUPLICATE_CHARGE
+  ROUND_INVALIDATED
+  ADMIN_APPROVED
+  OTHER
+}
+
+enum RefundStatus {
+  REQUESTED
+  REVIEW_REQUIRED
+  REFUND_PENDING
+  REFUNDED
+  REFUND_FAILED
+  REJECTED
+}
+
+enum ReportCategory {
+  HARASSMENT
+  IMPERSONATION
+  NO_SHOW
+  PRIVACY
+  UNSAFE_BEHAVIOR
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  REJECTED
+}
+
+enum RiskDecision {
+  ALLOW
+  REVIEW
+  RESTRICT
+  BLOCK
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+}
+
+enum AdminStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum PolicyType {
+  USER_TERMS
+  PRIVACY
+  SENSITIVE_INFO
+  CONTACT_SHARING
+  REFUND
+  SAFETY
+}
+
+enum ContactAccessOutcome {
+  GRANTED
+  DENIED
+}
+
+model Campus {
+  id                      String                         @id @default(uuid()) @db.Uuid
+  name                    String                         @db.VarChar(100)
+  status                  CatalogStatus                  @default(ACTIVE)
+  timezone                String                         @default("Asia/Shanghai") @db.VarChar(64)
+  createdAt               DateTime                       @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                       @updatedAt @db.Timestamptz(3)
+  users                   User[]
+  places                  Place[]
+  routes                  Route[]
+  verifications           StudentVerification[]
+  demands                 TravelDemand[]
+  groups                  CompanionGroup[]
+  reports                 Report[]
+  riskEvents              RiskEvent[]
+  auditLogs               AuditLog[]
+  configs                 SystemConfig[]
+  adminScopes             AdminCampusScope[]
+  contactAccessLogs       ContactAccessLog[]
+  verificationAssetGrants VerificationAssetAccessGrant[]
+
+  @@unique([name])
+  @@index([status])
+}
+
+model User {
+  id                 String                @id @default(uuid()) @db.Uuid
+  campusId           String                @db.Uuid
+  wechatSubject      String                @unique @db.VarChar(128)
+  displayName        String                @db.VarChar(30)
+  status             AccountStatus         @default(ACTIVE)
+  genderDeclaration  GenderDeclaration     @default(UNDISCLOSED)
+  createdAt          DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @db.Timestamptz(3)
+  deletedAt          DateTime?             @db.Timestamptz(3)
+  campus             Campus                @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  sessions           UserSession[]
+  contact            UserContact?
+  verifications      StudentVerification[]
+  demands            TravelDemand[]
+  memberships        GroupMember[]
+  confirmations      MemberConfirmation[]
+  orders             ServiceOrder[]
+  contactConsents    ContactConsent[]
+  contactViews       ContactUnlock[]       @relation("ContactViewer")
+  contactDisclosures ContactUnlock[]       @relation("ContactSubject")
+  contactAccessLogs  ContactAccessLog[]
+  blocksCreated      BlockRelation[]       @relation("Blocker")
+  blocksReceived     BlockRelation[]       @relation("Blocked")
+  reportsCreated     Report[]              @relation("ReportReporter")
+  reportsReceived    Report[]              @relation("ReportSubject")
+  riskEvents         RiskEvent[]
+  notifications      Notification[]
+  idempotencyRecords IdempotencyRecord[]
+
+  @@index([campusId, status])
+}
+
+model UserSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  campusId         String    @db.Uuid
+  userId           String    @db.Uuid
+  refreshTokenHash String    @unique @db.Char(64)
+  expiresAt        DateTime  @db.Timestamptz(3)
+  revokedAt        DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt       DateTime  @default(now()) @db.Timestamptz(3)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([campusId, userId, expiresAt])
+}
+
+model UserContact {
+  id                 String   @id @default(uuid()) @db.Uuid
+  campusId           String   @db.Uuid
+  userId             String   @unique @db.Uuid
+  wechatIdCiphertext Bytes
+  keyVersion         String   @db.VarChar(64)
+  valueDigest        String   @db.Char(64)
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @db.Timestamptz(3)
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StudentVerification {
+  id                  String                         @id @default(uuid()) @db.Uuid
+  userId              String                         @db.Uuid
+  campusId            String                         @db.Uuid
+  studentNumberDigest String                         @db.Char(64)
+  studentNumberLast4  String                         @db.VarChar(4)
+  status              VerificationStatus             @default(AWAITING_UPLOAD)
+  consentPolicyId     String                         @db.Uuid
+  submittedAt         DateTime?                      @db.Timestamptz(3)
+  latestSubmittedAt   DateTime?                      @db.Timestamptz(3)
+  reviewedAt          DateTime?                      @db.Timestamptz(3)
+  expiresAt           DateTime?                      @db.Timestamptz(3)
+  reasonCode          String?                        @db.VarChar(100)
+  createdAt           DateTime                       @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                       @updatedAt @db.Timestamptz(3)
+  user                User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campus              Campus                         @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  consentPolicy       PolicyVersion                  @relation(fields: [consentPolicyId], references: [id], onDelete: Restrict)
+  asset               VerificationAsset?
+  assetAccessGrants   VerificationAssetAccessGrant[]
+
+  @@unique([campusId, studentNumberDigest])
+  @@index([userId, status])
+  @@index([campusId, status, submittedAt])
+}
+
+model VerificationAsset {
+  id              String              @id @default(uuid()) @db.Uuid
+  campusId        String              @db.Uuid
+  verificationId  String              @unique @db.Uuid
+  objectKey       String              @unique @db.VarChar(512)
+  contentDigest   String?             @db.Char(64)
+  contentType     String?             @db.VarChar(100)
+  sizeBytes       Int?
+  deleteAfter     DateTime            @db.Timestamptz(3)
+  uploadExpiresAt DateTime            @db.Timestamptz(3)
+  deletedAt       DateTime?           @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  verification    StudentVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+
+  @@index([campusId, deleteAfter, deletedAt])
+}
+
+model Place {
+  id         String        @id @default(uuid()) @db.Uuid
+  campusId   String        @db.Uuid
+  name       String        @db.VarChar(100)
+  type       PlaceType
+  status     CatalogStatus @default(ACTIVE)
+  createdAt  DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime      @updatedAt @db.Timestamptz(3)
+  campus     Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  routesFrom Route[]       @relation("RouteOrigin")
+  routesTo   Route[]       @relation("RouteDestination")
+
+  @@unique([campusId, name])
+  @@index([campusId, status, type])
+}
+
+model Route {
+  id            String           @id @default(uuid()) @db.Uuid
+  campusId      String           @db.Uuid
+  originId      String           @db.Uuid
+  destinationId String           @db.Uuid
+  status        CatalogStatus    @default(ACTIVE)
+  createdAt     DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime         @updatedAt @db.Timestamptz(3)
+  campus        Campus           @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  origin        Place            @relation("RouteOrigin", fields: [originId], references: [id], onDelete: Restrict)
+  destination   Place            @relation("RouteDestination", fields: [destinationId], references: [id], onDelete: Restrict)
+  schedules     RouteSchedule[]
+  demands       TravelDemand[]
+  groups        CompanionGroup[]
+
+  @@unique([campusId, originId, destinationId])
+  @@index([campusId, status])
+}
+
+model RouteSchedule {
+  id            String    @id @default(uuid()) @db.Uuid
+  campusId      String    @db.Uuid
+  routeId       String    @db.Uuid
+  weekday       Int
+  startMinute   Int
+  endMinute     Int
+  windowMinutes Int       @default(30)
+  activeFrom    DateTime  @db.Date
+  activeUntil   DateTime? @db.Date
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  route         Route     @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@unique([routeId, weekday, startMinute, endMinute, activeFrom])
+  @@index([campusId, routeId, activeFrom, activeUntil])
+}
+
+model TravelDemand {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @db.Uuid
+  campusId         String           @db.Uuid
+  routeId          String           @db.Uuid
+  windowStart      DateTime         @db.Timestamptz(3)
+  windowEnd        DateTime         @db.Timestamptz(3)
+  seatCount        Int
+  luggageSize      LuggageSize
+  genderPreference GenderPreference
+  status           DemandStatus     @default(OPEN)
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  campus           Campus           @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  route            Route            @relation(fields: [routeId], references: [id], onDelete: Restrict)
+  groupMember      GroupMember?
+
+  @@index([campusId, routeId, windowStart, status])
+  @@index([userId, windowStart, windowEnd, status])
+}
+
+model CompanionGroup {
+  id          String           @id @default(uuid()) @db.Uuid
+  campusId    String           @db.Uuid
+  routeId     String           @db.Uuid
+  windowStart DateTime         @db.Timestamptz(3)
+  windowEnd   DateTime         @db.Timestamptz(3)
+  state       GroupState       @default(RECRUITING)
+  version     Int              @default(1)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @db.Timestamptz(3)
+  campus      Campus           @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  route       Route            @relation(fields: [routeId], references: [id], onDelete: Restrict)
+  members     GroupMember[]
+  rounds      FormationRound[]
+  reports     Report[]
+
+  @@index([campusId, routeId, windowStart, state])
+}
+
+model GroupMember {
+  id        String         @id @default(uuid()) @db.Uuid
+  campusId  String         @db.Uuid
+  groupId   String         @db.Uuid
+  userId    String         @db.Uuid
+  demandId  String         @unique @db.Uuid
+  seatCount Int
+  status    MemberStatus   @default(JOINED)
+  joinedAt  DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @db.Timestamptz(3)
+  group     CompanionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  demand    TravelDemand   @relation(fields: [demandId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, userId])
+  @@index([campusId, userId, status])
+  @@index([campusId, groupId, status])
+}
+
+model FormationRound {
+  id                     String               @id @default(uuid()) @db.Uuid
+  campusId               String               @db.Uuid
+  groupId                String               @db.Uuid
+  sequence               Int
+  memberSnapshotHash     String               @db.Char(64)
+  state                  RoundState           @default(CONFIRMING)
+  confirmBy              DateTime             @db.Timestamptz(3)
+  payBy                  DateTime?            @db.Timestamptz(3)
+  invalidatedAt          DateTime?            @db.Timestamptz(3)
+  invalidationReason     String?              @db.VarChar(100)
+  createdAt              DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime             @updatedAt @db.Timestamptz(3)
+  group                  CompanionGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  confirmations          MemberConfirmation[]
+  orders                 ServiceOrder[]
+  contactConsents        ContactConsent[]
+  contactUnlocks         ContactUnlock[]
+  contactAccessLogs      ContactAccessLog[]
+  contactPolicyVersionId String               @db.Uuid
+  contactPolicyVersion   PolicyVersion        @relation(fields: [contactPolicyVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, sequence])
+  @@index([campusId, groupId, state])
+  @@index([campusId, state, confirmBy, payBy])
+}
+
+model MemberConfirmation {
+  id        String               @id @default(uuid()) @db.Uuid
+  campusId  String               @db.Uuid
+  roundId   String               @db.Uuid
+  userId    String               @db.Uuid
+  decision  ConfirmationDecision
+  decidedAt DateTime             @default(now()) @db.Timestamptz(3)
+  round     FormationRound       @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([roundId, userId])
+  @@index([campusId, userId, decidedAt])
+}
+
+model ServiceOrder {
+  id              String               @id @default(uuid()) @db.Uuid
+  campusId        String               @db.Uuid
+  roundId         String               @db.Uuid
+  userId          String               @db.Uuid
+  merchantOrderNo String               @unique @db.VarChar(64)
+  amountFen       Int                  @default(99)
+  currency        String               @default("CNY") @db.Char(3)
+  pricingVersion  String               @db.VarChar(50)
+  status          OrderStatus          @default(CREATED)
+  expiresAt       DateTime             @db.Timestamptz(3)
+  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
+  round           FormationRound       @relation(fields: [roundId], references: [id], onDelete: Restrict)
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transactions    PaymentTransaction[]
+  refunds         Refund[]
+
+  @@unique([roundId, userId])
+  @@index([campusId, userId, status, createdAt])
+  @@index([campusId, roundId, status])
+}
+
+model PaymentTransaction {
+  id                    String          @id @default(uuid()) @db.Uuid
+  campusId              String          @db.Uuid
+  orderId               String          @db.Uuid
+  provider              PaymentProvider
+  providerTransactionId String?         @unique @db.VarChar(128)
+  status                PaymentStatus   @default(PENDING)
+  rawDigest             String          @db.Char(64)
+  occurredAt            DateTime?       @db.Timestamptz(3)
+  createdAt             DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime        @updatedAt @db.Timestamptz(3)
+  order                 ServiceOrder    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([campusId, orderId, status])
+}
+
+model Refund {
+  id               String       @id @default(uuid()) @db.Uuid
+  campusId         String       @db.Uuid
+  orderId          String       @db.Uuid
+  providerRefundId String?      @unique @db.VarChar(128)
+  amountFen        Int
+  reason           RefundReason
+  status           RefundStatus @default(REQUESTED)
+  requestedAt      DateTime     @default(now()) @db.Timestamptz(3)
+  completedAt      DateTime?    @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
+  order            ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([campusId, orderId, status])
+  @@index([campusId, status, requestedAt])
+}
+
+model PolicyVersion {
+  id                String                @id @default(uuid()) @db.Uuid
+  type              PolicyType
+  version           String                @db.VarChar(50)
+  contentDigest     String                @db.Char(64)
+  effectiveAt       DateTime              @db.Timestamptz(3)
+  retiredAt         DateTime?             @db.Timestamptz(3)
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
+  verifications     StudentVerification[]
+  contactConsents   ContactConsent[]
+  formationRounds   FormationRound[]
+  contactAccessLogs ContactAccessLog[]
+
+  @@unique([type, version])
+  @@index([type, effectiveAt, retiredAt])
+}
+
+model ContactConsent {
+  id              String         @id @default(uuid()) @db.Uuid
+  campusId        String         @db.Uuid
+  roundId         String         @db.Uuid
+  userId          String         @db.Uuid
+  policyVersionId String         @db.Uuid
+  grantedAt       DateTime       @default(now()) @db.Timestamptz(3)
+  revokedAt       DateTime?      @db.Timestamptz(3)
+  round           FormationRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user            User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  policyVersion   PolicyVersion  @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([roundId, userId])
+  @@index([campusId, userId, grantedAt])
+}
+
+model ContactUnlock {
+  id         String         @id @default(uuid()) @db.Uuid
+  campusId   String         @db.Uuid
+  roundId    String         @db.Uuid
+  viewerId   String         @db.Uuid
+  subjectId  String         @db.Uuid
+  unlockedAt DateTime       @default(now()) @db.Timestamptz(3)
+  round      FormationRound @relation(fields: [roundId], references: [id], onDelete: Restrict)
+  viewer     User           @relation("ContactViewer", fields: [viewerId], references: [id], onDelete: Restrict)
+  subject    User           @relation("ContactSubject", fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([roundId, viewerId, subjectId])
+  @@index([campusId, viewerId, unlockedAt])
+  @@index([campusId, subjectId, unlockedAt])
+}
+
+model ContactAccessLog {
+  id                        String               @id @default(uuid()) @db.Uuid
+  campusId                  String               @db.Uuid
+  roundId                   String               @db.Uuid
+  viewerId                  String               @db.Uuid
+  policyVersionId           String               @db.Uuid
+  requestId                 String               @unique @db.VarChar(100)
+  outcome                   ContactAccessOutcome
+  denialCode                String?              @db.VarChar(100)
+  disclosedSubjectSetDigest String?              @db.Char(64)
+  disclosedSubjectCount     Int                  @default(0)
+  accessSchemaVersion       Int                  @default(2) @db.SmallInt
+  accessedAt                DateTime             @default(now()) @db.Timestamptz(3)
+  campus                    Campus               @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  round                     FormationRound       @relation(fields: [roundId], references: [id], onDelete: Restrict)
+  viewer                    User                 @relation(fields: [viewerId], references: [id], onDelete: Restrict)
+  policyVersion             PolicyVersion        @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+
+  @@index([campusId, roundId, accessedAt])
+  @@index([campusId, viewerId, accessedAt])
+}
+
+model BlockRelation {
+  campusId  String   @db.Uuid
+  blockerId String   @db.Uuid
+  blockedId String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@index([campusId, blockedId])
+}
+
+model Report {
+  id            String          @id @default(uuid()) @db.Uuid
+  campusId      String          @db.Uuid
+  reporterId    String          @db.Uuid
+  subjectUserId String?         @db.Uuid
+  groupId       String?         @db.Uuid
+  category      ReportCategory
+  description   String          @db.VarChar(1000)
+  status        ReportStatus    @default(OPEN)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
+  campus        Campus          @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  reporter      User            @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  subjectUser   User?           @relation("ReportSubject", fields: [subjectUserId], references: [id], onDelete: Restrict)
+  group         CompanionGroup? @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@index([campusId, status, createdAt])
+  @@index([subjectUserId, status])
+  @@index([groupId, status])
+}
+
+model RiskEvent {
+  id             String       @id @default(uuid()) @db.Uuid
+  campusId       String       @db.Uuid
+  userId         String       @db.Uuid
+  ruleCode       String       @db.VarChar(100)
+  ruleVersion    String       @db.VarChar(50)
+  evidenceDigest String       @db.Char(64)
+  decision       RiskDecision
+  expiresAt      DateTime?    @db.Timestamptz(3)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  campus         Campus       @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([campusId, decision, createdAt])
+  @@index([userId, expiresAt])
+}
+
+model Notification {
+  id          String             @id @default(uuid()) @db.Uuid
+  campusId    String             @db.Uuid
+  userId      String             @db.Uuid
+  type        String             @db.VarChar(100)
+  payload     Json
+  status      NotificationStatus @default(PENDING)
+  availableAt DateTime           @default(now()) @db.Timestamptz(3)
+  sentAt      DateTime?          @db.Timestamptz(3)
+  attempts    Int                @default(0)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([campusId, status, availableAt])
+  @@index([campusId, userId, createdAt])
+}
+
+model OutboxEvent {
+  id            String       @id @default(uuid()) @db.Uuid
+  campusId      String       @db.Uuid
+  aggregateType String       @db.VarChar(100)
+  aggregateId   String       @db.Uuid
+  eventType     String       @db.VarChar(100)
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  availableAt   DateTime     @default(now()) @db.Timestamptz(3)
+  publishedAt   DateTime?    @db.Timestamptz(3)
+  attempts      Int          @default(0)
+  lastErrorCode String?      @db.VarChar(100)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([campusId, status, availableAt])
+  @@index([campusId, aggregateType, aggregateId, createdAt])
+}
+
+model AdminUser {
+  id                      String                         @id @default(uuid()) @db.Uuid
+  username                String                         @unique @db.VarChar(100)
+  passwordHash            String                         @db.VarChar(255)
+  totpSecretCiphertext    Bytes
+  keyVersion              String                         @db.VarChar(64)
+  status                  AdminStatus                    @default(ACTIVE)
+  lastLoginAt             DateTime?                      @db.Timestamptz(3)
+  createdAt               DateTime                       @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                       @updatedAt @db.Timestamptz(3)
+  roles                   AdminUserRole[]
+  campusScopes            AdminCampusScope[]
+  auditLogs               AuditLog[]
+  idempotencyRecords      IdempotencyRecord[]
+  sessions                AdminSession[]
+  verificationAssetGrants VerificationAssetAccessGrant[]
+}
+
+model AdminSession {
+  id                      String                         @id @default(uuid()) @db.Uuid
+  adminUserId             String                         @db.Uuid
+  sessionTokenHash        String                         @unique @db.Char(64)
+  csrfTokenHash           String                         @db.Char(64)
+  expiresAt               DateTime                       @db.Timestamptz(3)
+  lastReauthenticatedAt   DateTime                       @db.Timestamptz(3)
+  revokedAt               DateTime?                      @db.Timestamptz(3)
+  createdAt               DateTime                       @default(now()) @db.Timestamptz(3)
+  rotatedAt               DateTime                       @default(now()) @db.Timestamptz(3)
+  adminUser               AdminUser                      @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  verificationAssetGrants VerificationAssetAccessGrant[]
+
+  @@index([adminUserId, expiresAt, revokedAt])
+}
+
+model VerificationAssetAccessGrant {
+  id             String              @id @default(uuid()) @db.Uuid
+  campusId       String              @db.Uuid
+  verificationId String              @db.Uuid
+  adminUserId    String              @db.Uuid
+  adminSessionId String              @db.Uuid
+  tokenDigest    String              @unique @db.Char(64)
+  requestId      String              @unique @db.VarChar(100)
+  expiresAt      DateTime            @db.Timestamptz(3)
+  usedAt         DateTime?           @db.Timestamptz(3)
+  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
+  campus         Campus              @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  verification   StudentVerification @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  adminUser      AdminUser           @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  adminSession   AdminSession        @relation(fields: [adminSessionId], references: [id], onDelete: Restrict)
+
+  @@index([campusId, verificationId, expiresAt, usedAt])
+  @@index([adminUserId, createdAt])
+  @@index([adminSessionId, expiresAt, usedAt])
+}
+
+model Role {
+  id          String          @id @default(uuid()) @db.Uuid
+  code        String          @unique @db.VarChar(64)
+  description String          @db.VarChar(255)
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+  adminUsers  AdminUserRole[]
+}
+
+model AdminUserRole {
+  adminUserId String    @db.Uuid
+  roleId      String    @db.Uuid
+  grantedAt   DateTime  @default(now()) @db.Timestamptz(3)
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([adminUserId, roleId])
+}
+
+model AdminCampusScope {
+  adminUserId String    @db.Uuid
+  campusId    String    @db.Uuid
+  grantedAt   DateTime  @default(now()) @db.Timestamptz(3)
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  campus      Campus    @relation(fields: [campusId], references: [id], onDelete: Cascade)
+
+  @@id([adminUserId, campusId])
+  @@index([campusId])
+}
+
+model AuditLog {
+  id           String     @id @default(uuid()) @db.Uuid
+  actorAdminId String?    @db.Uuid
+  campusId     String?    @db.Uuid
+  action       String     @db.VarChar(100)
+  targetType   String     @db.VarChar(100)
+  targetId     String?    @db.Uuid
+  requestId    String     @db.VarChar(100)
+  beforeDigest String?    @db.Char(64)
+  afterDigest  String?    @db.Char(64)
+  reasonCode   String?    @db.VarChar(100)
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  actorAdmin   AdminUser? @relation(fields: [actorAdminId], references: [id], onDelete: SetNull)
+  campus       Campus?    @relation(fields: [campusId], references: [id], onDelete: SetNull)
+
+  @@index([actorAdminId, createdAt])
+  @@index([campusId, createdAt])
+  @@index([targetType, targetId, createdAt])
+}
+
+model SystemConfig {
+  id          String    @id @default(uuid()) @db.Uuid
+  campusId    String?   @db.Uuid
+  key         String    @db.VarChar(100)
+  version     Int
+  value       Json
+  effectiveAt DateTime  @db.Timestamptz(3)
+  retiredAt   DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  campus      Campus?   @relation(fields: [campusId], references: [id], onDelete: Cascade)
+
+  @@unique([campusId, key, version])
+  @@index([key, effectiveAt, retiredAt])
+}
+
+model IdempotencyRecord {
+  id                 String     @id @default(uuid()) @db.Uuid
+  campusId           String?    @db.Uuid
+  scope              String     @db.VarChar(100)
+  key                String     @db.VarChar(128)
+  userId             String?    @db.Uuid
+  adminUserId        String?    @db.Uuid
+  requestDigest      String     @db.Char(64)
+  responseStatus     Int?
+  responseCiphertext Bytes?
+  keyVersion         String?    @db.VarChar(64)
+  expiresAt          DateTime   @db.Timestamptz(3)
+  createdAt          DateTime   @default(now()) @db.Timestamptz(3)
+  user               User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminUser          AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@unique([scope, key])
+  @@index([campusId, expiresAt])
+  @@index([campusId, userId, createdAt])
+  @@index([campusId, adminUserId, createdAt])
+}

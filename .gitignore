@@ -1,0 +1,15 @@
+node_modules/
+.pnpm-store/
+dist/
+.turbo/
+.env
+.env.*
+!.env.example
+coverage/
+*.log
+project.private.config.json
+apps/miniprogram/miniprogram_npm/
+packages/database/generated/
+.idea/
+.vscode/
+

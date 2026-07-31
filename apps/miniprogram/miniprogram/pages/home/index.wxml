@@ -1,0 +1,11 @@
+<view class="page">
+  <text class="eyebrow">{{milestone}} · 工程基础</text>
+  <view class="hero">{{title}}</view>
+  <view class="card">
+    <text class="muted">{{message}}</text>
+  </view>
+  <view class="card warning">
+    <text>平台只提供学生同行信息撮合，不提供司机、车辆和运输服务。</text>
+  </view>
+</view>
+

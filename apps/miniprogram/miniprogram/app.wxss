@@ -1,0 +1,24 @@
+page {
+  min-height: 100%;
+  color: #17251f;
+  background: #f4f7f5;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+
+.page {
+  padding: 40rpx 32rpx;
+}
+
+.card {
+  margin-top: 24rpx;
+  padding: 32rpx;
+  border: 1rpx solid #dce5df;
+  border-radius: 24rpx;
+  background: #ffffff;
+}
+
+.muted {
+  color: #69776f;
+  line-height: 1.7;
+}
+

@@ -1,0 +1,23 @@
+{
+  "pages": ["pages/home/index", "pages/publish/index", "pages/trips/index", "pages/profile/index"],
+  "window": {
+    "navigationBarTitleText": "校园同行",
+    "navigationBarBackgroundColor": "#176b4d",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f4f7f5",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#6b7771",
+    "selectedColor": "#176b4d",
+    "backgroundColor": "#ffffff",
+    "list": [
+      { "pagePath": "pages/home/index", "text": "首页" },
+      { "pagePath": "pages/publish/index", "text": "发布" },
+      { "pagePath": "pages/trips/index", "text": "我的同行" },
+      { "pagePath": "pages/profile/index", "text": "我的" }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}
