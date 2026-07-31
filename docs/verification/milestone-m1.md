@@ -2,9 +2,15 @@
 
 状态：**BLOCKED**
 
-> M1 代码与本地可执行门禁已完成，但当前 Windows 环境没有 Docker、Podman、原生
-> PostgreSQL、Redis 或 WSL 发行版。原生 PostgreSQL 16 与 Redis 7 集成用例已经写入
-> CI，但本次未执行，不能将里程碑标记为 PASS，也不会进入 M2。
+> 2026-07-31 更新：GitHub Actions 运行 `30619545281` 已在提交
+> `5f79b046ed805ddb1e53640be4a68e241c55ec42` 上通过原生 PostgreSQL 16.8、Redis 7.4.2、
+> 两次迁移、迁移状态、完整门禁和联网依赖审计。Artifact `8788819226` 的 ZIP SHA-256 为
+> `7836b9f662b81ed669fdbf1e9d1cb3dbd5a6bf8f7e401cb7fb0bdc6598b10933`。
+> 本报告后文中“原生门禁尚未运行”和“当前不是 Git 仓库”的表述仅保留为 2026-07-15 历史快照，
+> 已由 `m1-github-ci-and-environment-inventory.md` 取代。
+
+> M1 仍为 BLOCKED：负责人尚未声明仓库外云账号、其他设备和离线备份范围，也未签署重置批准；
+> 私有仓库当前套餐不支持 branch protection/rulesets，GitHub API 返回 HTTP 403。
 
 > 最新独立复核已判定 M0 技术 PASS，等待用户重新确认。该复核已关闭认证有效期问题，
 > 但认定原“冻结基线”包含历史升级步骤且冻结过早。当前已按 ADR-013/ADR-014 重建最终态空库候选；

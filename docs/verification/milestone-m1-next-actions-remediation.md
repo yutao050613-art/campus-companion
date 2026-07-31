@@ -4,6 +4,19 @@
 
 状态：**PARTIAL；M1 继续 BLOCKED，不得进入 M2**
 
+## 2026-07-31 后续验证更新
+
+- A-04/A-05：GitHub Actions 运行 `30619545281` 已完成 PostgreSQL 16.8 首次部署、二次幂等
+  部署和 `prisma migrate status`，全部成功。
+- A-06/A-07：4 个原生 PostgreSQL 测试和 1 个原生 Redis 7.4.2 测试均为零跳过、零失败。
+- A-08：同一绿色运行的依赖审计所有严重级别均为 0。
+- A-02：工作区、本机、GitHub 仓库和 CI 历史数据库技术清点已完成；仓库外云账号、其他设备
+  和离线备份仍需负责人声明，详见 `m1-github-ci-and-environment-inventory.md`。
+- A-09：远程仓库和绿色 CI 已建立，但私人仓库当前套餐调用 branch protection/rulesets API
+  返回 HTTP 403；需要升级 GitHub Pro 或经负责人批准将仓库公开，当前信任根仍不满足。
+
+以下正文保留 2026-07-15 整改当时的历史状态，不得覆盖上述更新。
+
 ## 输入证据
 
 - 外部行动清单：`m1-next-actions.md`

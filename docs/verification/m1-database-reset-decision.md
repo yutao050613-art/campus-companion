@@ -1,8 +1,8 @@
 # M1 预发布数据库重置决定
 
-日期：2026-07-14（Asia/Shanghai）
+日期：2026-07-31（Asia/Shanghai）
 
-状态：**PENDING APPROVAL；不得执行重置或冻结迁移**
+状态：**TECHNICAL INVENTORY COMPLETE；OWNER ATTESTATION PENDING；不得执行重置或冻结迁移**
 
 决策提出人：Codex（仅整理技术方案，不具备发布批准权）
 项目/发布负责人：**待填写**
@@ -20,21 +20,26 @@
 
 - 项目尚未进入 M2，没有认证、组队或支付业务服务部署。
 - 工作区只有 `.env.example` 与 CI 占位连接，没有真实环境 `.env`、数据库凭据或部署记录。
-- 当前机器没有可用的 Docker、PostgreSQL 或 Redis；数据库自动化验证使用每次测试后销毁的 PGlite 进程内实例。
-- 上述事实只能证明当前工作区和当前主机，不能证明外部环境不存在数据库。
+- 当前机器安装了 Docker CLI `29.6.1`，但 daemon 未运行；未发现 Docker 数据 VHD、WSL 发行版、
+  PostgreSQL/Redis 程序、服务、进程或 `5432`/`6379` 监听端口。
+- GitHub 仓库没有 Environments、Deployments、Actions Secrets 或 Actions Variables，只有一个协作者。
+- GitHub Actions 运行 `30619545281` 已在随 Job 销毁的 PostgreSQL 16.8 与 Redis 7.4.2
+  服务容器中通过全部原生门禁；证据 Artifact 不含数据库 dump、卷或快照。
+- `docs/verification/m1-github-ci-and-environment-inventory.md` 固化了本轮命令、API 和 Artifact 证据。
+- 上述事实不能证明未连接到本项目的云账号、其他电脑或离线备份中绝对不存在数据库。
 
 ## 环境清单
 
 | 环境 | Owner | 检查方式 | 检查时间 | 结果 | 数据保留义务 |
 |---|---|---|---|---|---|
-| 当前工作区 | Codex 本地检查 | 搜索真实 `.env`、部署记录和数据库文件 | 2026-07-15 | 未发现 | 未发现 |
-| 当前 Windows 主机 | Codex 本地检查 | Docker/Podman/PostgreSQL/Redis/WSL 工具与服务清点 | 2026-07-15 | 未发现可用数据库环境 | 未发现 |
-| 共享开发环境 | **待负责人填写** | **待填写** | **待填写** | UNKNOWN | UNKNOWN |
-| 测试/预发布环境 | **待负责人填写** | **待填写** | **待填写** | UNKNOWN | UNKNOWN |
-| CI 历史数据库 | **待负责人填写** | **待填写** | **待填写** | UNKNOWN | UNKNOWN |
-| 腾讯云及其他云账号 | **待负责人填写** | **待填写** | **待填写** | UNKNOWN | UNKNOWN |
-| 其他开发者电脑 | **待负责人填写** | **待填写** | **待填写** | UNKNOWN | UNKNOWN |
-| 备份、快照与灾备 | **待负责人填写** | **待填写** | **待填写** | UNKNOWN | UNKNOWN |
+| 当前工作区 | Codex 本地检查 | 搜索真实 `.env`、部署记录和数据库文件 | 2026-07-31 | `CONFIRMED_NO_PERSISTENT_DB` | 未发现 |
+| 当前 Windows 主机 | Codex 本地检查 | 工具、服务、进程、端口、WSL、Docker 数据盘和常见数据目录 | 2026-07-31 | `CONFIRMED_NO_DETECTED_DB` | 未发现 |
+| GitHub 仓库环境 | Codex GitHub API 检查 | 环境、部署、Secret/Variable 名称和协作者清点 | 2026-07-31 | `CONFIRMED_NO_REPOSITORY_DEPLOYMENT` | 未发现 |
+| CI 历史数据库 | GitHub Actions | 运行 `30619545281`、Artifact `8788819226`、容器停止结果和 ZIP 清单 | 2026-07-31 | `EPHEMERAL_CI_ONLY` | 无数据库保留义务；证据保留 30 天 |
+| 共享开发环境 | **待负责人确认** | 仓库无关联环境，需声明是否有仓库外服务器 | 2026-07-31 | `NO_LINKED_ENVIRONMENT` | `OWNER_ATTESTATION_REQUIRED` |
+| 测试/预发布环境 | **待负责人确认** | GitHub 无环境/部署，Terraform 规定 M6 才创建资源 | 2026-07-31 | `NOT_PROVISIONED_BY_PROJECT` | `OWNER_ATTESTATION_REQUIRED` |
+| 腾讯云及其他云账号 | **待负责人确认** | 仓库和本机无项目关联配置，需核对账号控制台 | 2026-07-31 | `NO_PROJECT_LINKED_CLOUD_RESOURCE` | `OWNER_ATTESTATION_REQUIRED` |
+| 其他电脑、备份、快照与灾备 | **待负责人确认** | 当前证据无法覆盖其他设备、账号或离线介质 | 2026-07-31 | `OUTSIDE_TECHNICAL_VISIBILITY` | `OWNER_ATTESTATION_REQUIRED` |
 
 ## 待批准决定
 
@@ -59,4 +64,9 @@
 
 ## 当前证据边界
 
-PGlite 已证明最终态候选可以从空库执行并实施关键约束，但不能替代原生 PostgreSQL 16 的 Prisma 迁移表与 checksum 验证。环境审批、原生空库迁移、并发、Redis 和依赖审计通过前，M1 继续保持 BLOCKED。
+GitHub Actions 已在原生 PostgreSQL 16.8 与 Redis 7.4.2 中通过空库首次部署、二次幂等部署、
+迁移状态、对象清单、并发、队列及依赖审计。Artifact ZIP 的 SHA-256 为
+`7836b9f662b81ed669fdbf1e9d1cb3dbd5a6bf8f7e401cb7fb0bdc6598b10933`。
+
+但当前私人仓库套餐不支持 branch protection 或 rulesets，相关 GitHub API 返回 HTTP 403；负责人
+范围外声明和重置批准也尚未完成。因此不得冻结迁移、不得重置数据库，M1 继续保持 `BLOCKED`。

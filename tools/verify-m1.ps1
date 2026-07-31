@@ -51,6 +51,7 @@ $requiredFiles = @(
   'packages/database/prisma/migrations/20260715000000_m1_final_state_candidate/migration.sql',
   'packages/database/test/database-object-inventory.ts',
   'docs/verification/migration-candidate.sha256',
+  'docs/verification/m1-github-ci-and-environment-inventory.md',
   'docs/verification/m1-baseline.sha256',
   'infra/docker/docker-compose.yml',
   'infra/docker/api.Dockerfile',
@@ -199,11 +200,22 @@ foreach ($line in $migrationCandidateLines) {
 }
 
 $resetDecision = Read-Utf8 'docs/verification/m1-database-reset-decision.md'
-Assert-True ($resetDecision -match 'PENDING APPROVAL') 'database reset remains pending accountable owner approval'
+Assert-True ($resetDecision -match 'TECHNICAL INVENTORY COMPLETE') 'database environment technical inventory is recorded as complete'
+Assert-True ($resetDecision -match 'OWNER ATTESTATION PENDING') 'database reset remains pending accountable owner attestation'
 Assert-True ($resetDecision.Contains('ProjectReleaseOwner: PENDING')) 'database reset has no self-declared project owner'
-Assert-True (($resetDecision | Select-String -Pattern 'UNKNOWN' -AllMatches).Matches.Count -ge 6) 'external database environments remain explicitly unknown until inventoried'
+Assert-True (($resetDecision | Select-String -Pattern 'OWNER_ATTESTATION_REQUIRED' -AllMatches).Matches.Count -ge 4) 'off-repository database scopes require accountable owner attestation'
+Assert-True ($resetDecision -match '30619545281') 'database decision identifies the successful native CI run'
+Assert-True ($resetDecision -match '7836b9f662b81ed669fdbf1e9d1cb3dbd5a6bf8f7e401cb7fb0bdc6598b10933') 'database decision records the verified evidence artifact digest'
 Assert-True ($resetDecision.Contains('ApprovalSignature: PENDING')) 'database reset approval signature remains unfilled'
 Assert-True ($resetDecision -match 'migration-candidate\.sha256') 'database reset decision identifies a candidate rather than a frozen baseline'
+
+$environmentInventory = Read-Utf8 'docs/verification/m1-github-ci-and-environment-inventory.md'
+Assert-True ($environmentInventory -match '5f79b046ed805ddb1e53640be4a68e241c55ec42') 'environment inventory binds evidence to the reviewed commit'
+Assert-True ($environmentInventory -match 'Artifact ID \| `8788819226`') 'environment inventory identifies the GitHub evidence artifact'
+Assert-True ($environmentInventory -match 'EPHEMERAL_CI_ONLY') 'environment inventory distinguishes ephemeral CI databases'
+Assert-True ($environmentInventory -match 'CONFIRMED_NO_PERSISTENT_DB') 'environment inventory records the workspace database result'
+Assert-True ($environmentInventory -match 'CONFIRMED_NO_DETECTED_DB') 'environment inventory records the current host database result'
+Assert-True ($environmentInventory -match 'Upgrade to GitHub Pro or make this repository public') 'environment inventory records the branch-protection capability blocker'
 
 $openApi = Read-Utf8 'docs/api/openapi.yaml'
 Assert-True ($openApi -match '(?m)^openapi: 3\.1\.0\s*$') 'OpenAPI 3.1 remains the contract source'
