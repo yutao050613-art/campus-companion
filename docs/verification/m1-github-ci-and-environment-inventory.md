@@ -2,20 +2,23 @@
 
 日期：2026-07-31（Asia/Shanghai）
 
-状态：**技术清点完成；负责人范围外声明待完成；未执行数据库重置或迁移冻结**
+状态：**技术清点完成；`main` 分支保护已启用；负责人范围外声明待完成；未执行数据库重置或迁移冻结**
 
 ## GitHub 仓库与分支保护
 
-- 仓库：`yutao050613-art/campus-companion`，私有仓库，默认分支 `main`。
+- 仓库：`yutao050613-art/campus-companion`，公开仓库，默认分支 `main`。
 - 当前协作者只有 `yutao050613-art`，权限为 `admin`；Git 历史也只有该身份提交。
 - 最新受验证提交：`5f79b046ed805ddb1e53640be4a68e241c55ec42`。
 - 必需检查的实际名称为 `verify`，由 GitHub Actions 应用（App ID `15368`）产生。
-- 2026-07-31 调用 branch protection 与 repository rulesets API 均返回 HTTP 403：
-  `Upgrade to GitHub Pro or make this repository public to enable this feature.`
-- 为避免未经授权扩大代码可见性或产生订阅费用，仓库保持私有，未擅自升级套餐或改为公开。
-
-套餐能力解锁后应配置：要求通过 PR、严格要求最新 `verify` 检查、要求解决会话、线性历史、
-管理员同样受约束，并禁止强推和删除 `main`。当前未受保护的 `main` 仍是 M1 信任根阻断项。
+- 私有仓库阶段调用 branch protection/rulesets API 返回 HTTP 403；项目负责人随后明确批准将仓库公开。
+- 可见性转换完成后，`main` 的 branch protection API 已成功写入并回读：
+  - 所有变更必须通过 PR；当前单维护者阶段批准数为 0；
+  - 必须通过由 GitHub Actions App ID `15368` 产生的最新 `verify` 检查，`strict=true`；
+  - 管理员同样受约束，旧审查在新提交后失效；
+  - 要求解决会话和线性历史；
+  - 禁止强推和删除 `main`。
+- 标记：`BRANCH_PROTECTION_ACTIVE`。
+- 破坏性操作标记：`FORCE_PUSH_AND_DELETION_DISABLED`。
 
 ## 绿色 CI 原生证据
 
