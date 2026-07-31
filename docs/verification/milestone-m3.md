@@ -136,3 +136,28 @@ The complete CI-equivalent command passed locally with native PostgreSQL and Red
 enabled after this remediation. The final protected-CI run ID, artifact ID, and
 downloaded SHA-256 manifest verification will be recorded here before M3 is proposed
 for final acceptance.
+
+## Protected CI evidence (2026-08-01)
+
+- PR: [#8](https://github.com/yutao050613-art/campus-companion/pull/8), branch
+  commit `23e4416b2f567e2174c7116f7dd35c35f0bb0de1`.
+- Required checks: `quality-gates` run
+  [30658250113](https://github.com/yutao050613-art/campus-companion/actions/runs/30658250113)
+  passed in 3m15s; `m3-quality-gates` run
+  [30658250150](https://github.com/yutao050613-art/campus-companion/actions/runs/30658250150)
+  passed in 2m56s.
+- The M3 run tested GitHub's PR merge commit
+  `e51ad60505f8a44932ae8762cbf2ae74c951117f` for the branch commit above, as recorded
+  by `GITHUB_SHA` and `refs/pull/8/merge` in its immutable environment evidence.
+- Downloaded artifact: ID `8804175485`, name
+  `m3-verification-30658250150-1-e51ad60505f8a44932ae8762cbf2ae74c951117f`, GitHub
+  artifact digest `sha256:5d1e04b1f4dee37dc623137067e630fda65b9422165a477a07e1cb8298815800`;
+  it remains available until 2026-08-30 19:16 UTC.
+- The downloaded artifact's internal raw-byte SHA-256 manifest was independently
+  recomputed: 19/19 files matched. Its complete gate reports 369 M0, 319 M1, 98 M2,
+  and 111 M3 checks passed with zero failures. Separate native evidence confirms
+  PostgreSQL 4/4, M2 API 3/3, M3 API 5/5, M3 Worker 1/1, and Redis 1/1 tests, with
+  no skipped or failed test; the dependency audit reports zero known vulnerabilities.
+
+This is protected-CI evidence for M3. It does not approve the PR or begin M4; Cedric's
+explicit M3 acceptance remains required.
