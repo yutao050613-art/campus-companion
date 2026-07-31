@@ -1,2 +1,20 @@
-<view class="page"><view class="card"><view>{{title}}</view><text class="muted">{{state}}</text></view></view>
-
+<view class="page">
+  <view class="card">
+    <text class="eyebrow">M2 · 账号与认证</text>
+    <view class="title">我的</view>
+    <text class="muted">{{message}}</text>
+  </view>
+  <view class="card" wx:if="{{!loggedIn}}">
+    <text class="label">模拟环境测试码（真实微信环境留空）</text>
+    <input value="{{mockCode}}" bindinput="onMockCodeInput" placeholder="可选，仅本地测试" />
+    <button loading="{{busy}}" disabled="{{busy}}" bindtap="login">微信登录</button>
+  </view>
+  <view class="card" wx:else>
+    <text class="label">学生认证状态</text>
+    <view class="status">{{verificationStatus}}</view>
+    <button bindtap="openVerification">进入学生认证</button>
+  </view>
+  <view class="card warning">
+    <text>平台仅提供学生同行信息撮合，不提供司机、车辆、叫车、运价或运输服务。</text>
+  </view>
+</view>

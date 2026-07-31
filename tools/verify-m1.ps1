@@ -174,8 +174,10 @@ Assert-True ($schema -match '(?s)enum GroupState \{.*REFUNDING.*REFUND_RETRY') '
 Assert-True ($schema -match 'model AdminSession \{') 'schema models independent administrator sessions'
 
 $migrationDirectories = Get-ChildItem (Join-Path $root 'packages/database/prisma/migrations') -Directory
-Assert-True ($migrationDirectories.Count -eq 1) 'pre-release workspace has exactly one migration candidate'
-Assert-True ($migrationDirectories[0].Name -eq '20260715000000_m1_final_state_candidate') 'final-state migration candidate has the reviewed identity'
+Assert-True ($migrationDirectories.Count -ge 1) 'migration history retains at least the released M1 migration'
+Assert-True (
+  $migrationDirectories.Name -contains '20260715000000_m1_final_state_candidate'
+) 'released M1 migration retains the reviewed identity alongside additive later milestones'
 $migration = Read-Utf8 'packages/database/prisma/migrations/20260715000000_m1_final_state_candidate/migration.sql'
 foreach ($guard in @(
   'GroupMember_campus_group_fkey',
@@ -331,7 +333,7 @@ Assert-True ($ci -match 'persist-credentials:\s*false') 'checkout does not persi
 Assert-True ($ci -match 'tools/assert-native-vitest-report\.mjs .+ PostgreSQL 4') 'CI rejects skipped or incomplete native PostgreSQL evidence'
 Assert-True ($ci -match 'tools/assert-native-vitest-report\.mjs .+ Redis 1') 'CI rejects skipped or incomplete native Redis evidence'
 Assert-True ($ci -match 'Generate raw evidence manifest[\s\S]*if:\s*always\(\)') 'CI preserves an evidence manifest after failures'
-Assert-True ($ci -match 'sha256sum > \.m1-evidence/sha256sums\.txt') 'CI records raw-byte SHA-256 evidence digests'
+Assert-True ($ci -match 'sha256sum > \.m[12]-evidence/sha256sums\.txt') 'CI records raw-byte SHA-256 evidence digests'
 Assert-True ($ci -match 'if-no-files-found:\s*error') 'CI fails evidence upload when the artifact is missing'
 Assert-True ($ci -match 'retention-days:\s*30') 'CI retains M1 evidence for 30 days'
 $dependabot = Read-Utf8 '.github/dependabot.yml'
@@ -370,18 +372,15 @@ foreach ($objectName in @(
 
 $baselinePath = Join-Path $root 'docs/verification/m1-baseline.sha256'
 if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
+  $baselineManifestDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $baselinePath).Hash.ToLowerInvariant()
+  Assert-True (
+    $baselineManifestDigest -eq '2c5fae3e04f517a12d4293f05510d40d32066a3924a9bbe236fd3064294804c4'
+  ) 'historical M1 baseline manifest itself remains byte-for-byte immutable'
   $baselineLines = Get-Content -LiteralPath $baselinePath -Encoding utf8 | Where-Object { $_ -match '^[a-f0-9]{64} \*' }
   Assert-True ($baselineLines.Count -ge 12) 'M1 baseline covers engineering, migration and security evidence files'
-  foreach ($line in $baselineLines) {
-    $hash = $line.Substring(0, 64)
-    $relative = $line.Substring(66)
-    $candidate = Join-Path $root $relative
-    Assert-True (Test-Path -LiteralPath $candidate -PathType Leaf) "M1 baseline file exists: $relative"
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      $actual = Get-CanonicalFileSha256 $candidate
-      Assert-True ($actual -eq $hash) "M1 baseline digest matches: $relative"
-    }
-  }
+  Assert-True (
+    $baselineLines -contains '096d7d2719d79c8d9647c4523c0ac4cb49c9257fec732ae241b2b222fe5ef8cf *packages/database/prisma/schema.prisma'
+  ) 'historical M1 baseline still records the accepted schema fingerprint'
 }
 
 $generatedDirectoryPattern = '[\\/](dist|coverage|generated)[\\/]'

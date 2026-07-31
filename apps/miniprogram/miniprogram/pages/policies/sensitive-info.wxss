@@ -1,0 +1,2 @@
+.title { margin: 16rpx 0 28rpx; font-size: 40rpx; font-weight: 800; }
+.policy-text text { display: block; margin-top: 22rpx; line-height: 1.8; }

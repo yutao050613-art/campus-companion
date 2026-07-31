@@ -15,15 +15,12 @@
 
 项目按 M0—M7 里程碑开发。每个里程碑必须通过业务规则、自动测试、安全负向测试和人工复核，并生成 `docs/verification/` 验证报告后暂停。
 
-当前状态：**M0 已获独立技术复核 PASS、等待用户重新确认；M1 仍 BLOCKED**。最新独立复核确认
-M0 的无歧义认证状态、材料 Grant 原子单次消费和整组联系方式审计已关闭原阻断项，同时指出 M1
-曾原地修改预发布迁移，以及认证有效期仍有空值歧义。F-02 已获独立关闭；F-01 当前改为 Prisma
-from-empty 最终态迁移候选，不再包含历史枚举升级或数据回填，也不再提前宣称冻结。外部环境清点、
-项目/发布负责人重置批准、原生 PostgreSQL 16、Redis 7 与联网依赖审计仍未完成，M2 未开始。
-第二轮独立复核指出的原生数据库对象清点实现缺口已补齐，但仍必须在 PostgreSQL 16.8 的一次性隔离环境中实际执行后才能形成验收证据。
+当前状态：**M0/M1 已验收；M2 本地质量门禁通过，等待受保护 CI 与用户最终确认**。
+M2 已实现模拟微信登录、学生人工认证、管理员密码加 TOTP、校区权限、受控材料查看和并发安全删除；
+材料支持学生卡照片、企业微信身份截图或两者。确认 M2 前暂停，不开始 M3。
 
 安装依赖后，在 Windows PowerShell 中执行 `pnpm check` 可重复运行本地完整门禁；
-`pnpm verify:m0` 和 `pnpm verify:m1` 可分别运行结构验证。
+`pnpm verify:m0`、`pnpm verify:m1` 和 `pnpm verify:m2` 可分别运行里程碑结构验证。
 
 ## 目标仓库结构
 
@@ -74,6 +71,11 @@ docs/
 - [M1 原生数据库对象清点整改报告](docs/verification/milestone-m1-native-inventory-remediation.md)
 - [M1 原生对象清点整改独立复核记录](docs/verification/milestone-m1-native-inventory-independent-review.md)
 - [M1 验证报告](docs/verification/milestone-m1.md)
+- [M2 进入批准](docs/verification/m2-entry-approval.md)
+- [M2 安全不变量](docs/verification/m2-invariants.md)
+- [M2 敏感信息政策](docs/policies/sensitive-information-v1.md)
+- [M2 验证报告](docs/verification/milestone-m2.md)
+- [M2 摘要基线](docs/verification/m2-baseline.sha256)
 
 ## 安全提示
 

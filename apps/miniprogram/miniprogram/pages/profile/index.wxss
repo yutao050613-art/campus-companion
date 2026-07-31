@@ -1,1 +1,5 @@
-
+.title { margin: 14rpx 0; font-size: 52rpx; font-weight: 800; }
+.label { display: block; margin-bottom: 12rpx; color: #4d6157; font-weight: 700; }
+input { margin: 16rpx 0 24rpx; border: 1rpx solid #cfdad4; border-radius: 16rpx; padding: 20rpx; }
+button { margin-top: 24rpx; color: #fff; background: #176b4d; }
+.status { margin: 16rpx 0; border-radius: 16rpx; padding: 20rpx; color: #176b4d; background: #eaf5ef; font-weight: 800; }

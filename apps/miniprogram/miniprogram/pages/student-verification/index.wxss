@@ -1,0 +1,9 @@
+.status { margin: 14rpx 0; font-size: 34rpx; font-weight: 800; }
+.reason { display: block; margin-top: 16rpx; color: #a33b36; }
+.label { display: block; margin: 20rpx 0 10rpx; color: #40554a; font-weight: 700; }
+input { border: 1rpx solid #cfdad4; border-radius: 16rpx; padding: 20rpx; }
+radio-group label { margin-right: 28rpx; }
+.evidence { display: block; margin: 18rpx 0; color: #2d483b; }
+.consent { display: block; margin-top: 28rpx; color: #4c6056; line-height: 1.6; }
+button { margin-top: 28rpx; color: #fff; background: #176b4d; }
+.policy { color: #176b4d; background: #eaf5ef; }

@@ -33,6 +33,11 @@ enum VerificationStatus {
   VERIFICATION_EXPIRED
 }
 
+enum VerificationAssetType {
+  STUDENT_CARD
+  WECOM_SCREENSHOT
+}
+
 enum CatalogStatus {
   ACTIVE
   INACTIVE
@@ -299,7 +304,7 @@ model StudentVerification {
   user                User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
   campus              Campus                         @relation(fields: [campusId], references: [id], onDelete: Restrict)
   consentPolicy       PolicyVersion                  @relation(fields: [consentPolicyId], references: [id], onDelete: Restrict)
-  asset               VerificationAsset?
+  assets              VerificationAsset[]
   assetAccessGrants   VerificationAssetAccessGrant[]
 
   @@unique([campusId, studentNumberDigest])
@@ -310,18 +315,24 @@ model StudentVerification {
 model VerificationAsset {
   id              String              @id @default(uuid()) @db.Uuid
   campusId        String              @db.Uuid
-  verificationId  String              @unique @db.Uuid
+  verificationId  String              @db.Uuid
+  type            VerificationAssetType
   objectKey       String              @unique @db.VarChar(512)
   contentDigest   String?             @db.Char(64)
   contentType     String?             @db.VarChar(100)
   sizeBytes       Int?
-  deleteAfter     DateTime            @db.Timestamptz(3)
+  deleteAfter     DateTime?           @db.Timestamptz(3)
+  deletionClaimedAt DateTime?         @db.Timestamptz(3)
   uploadExpiresAt DateTime            @db.Timestamptz(3)
   deletedAt       DateTime?           @db.Timestamptz(3)
   createdAt       DateTime            @default(now()) @db.Timestamptz(3)
   verification    StudentVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  accessGrants    VerificationAssetAccessGrant[]
 
+  @@unique([verificationId, type])
+  @@unique([campusId, verificationId, id])
   @@index([campusId, deleteAfter, deletedAt])
+  @@index([deleteAfter, deletionClaimedAt, deletedAt])
 }
 
 model Place {
@@ -727,6 +738,7 @@ model VerificationAssetAccessGrant {
   id             String              @id @default(uuid()) @db.Uuid
   campusId       String              @db.Uuid
   verificationId String              @db.Uuid
+  verificationAssetId String         @db.Uuid
   adminUserId    String              @db.Uuid
   adminSessionId String              @db.Uuid
   tokenDigest    String              @unique @db.Char(64)
@@ -736,10 +748,12 @@ model VerificationAssetAccessGrant {
   createdAt      DateTime            @default(now()) @db.Timestamptz(3)
   campus         Campus              @relation(fields: [campusId], references: [id], onDelete: Restrict)
   verification   StudentVerification @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  verificationAsset VerificationAsset @relation(fields: [verificationAssetId], references: [id], onDelete: Restrict)
   adminUser      AdminUser           @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
   adminSession   AdminSession        @relation(fields: [adminSessionId], references: [id], onDelete: Restrict)
 
   @@index([campusId, verificationId, expiresAt, usedAt])
+  @@index([verificationAssetId, expiresAt, usedAt])
   @@index([adminUserId, createdAt])
   @@index([adminSessionId, expiresAt, usedAt])
 }

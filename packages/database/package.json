@@ -2,8 +2,14 @@
   "name": "@campus/database",
   "version": "0.1.0",
   "private": true,
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "files": [
+    "dist",
+    "generated"
+  ],
   "scripts": {
-    "build": "prisma generate",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
     "typecheck": "node scripts/validate-schema.mjs && prisma generate && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:format": "prisma format",
