@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "../generated/client";
 import {
   databaseObjectInventorySql,
@@ -27,9 +27,76 @@ const ids = {
   adminSession: "10000000-0000-0000-0000-000000000902",
 } as const;
 
+async function cleanupNativeFixtures(): Promise<void> {
+  await database.$transaction([
+    database.$executeRaw`
+      DELETE FROM "AuditLog"
+       WHERE "targetId" = ${ids.verification}::uuid
+          OR "requestId" LIKE 'native-grant-consume-%'
+    `,
+    database.$executeRaw`
+      DELETE FROM "VerificationAssetAccessGrant"
+       WHERE "verificationId" = ${ids.verification}::uuid
+          OR "adminSessionId" = ${ids.adminSession}::uuid
+    `,
+    database.$executeRaw`
+      DELETE FROM "AdminSession"
+       WHERE "id" = ${ids.adminSession}::uuid
+    `,
+    database.$executeRaw`
+      DELETE FROM "AdminUser"
+       WHERE "id" = ${ids.admin}::uuid
+    `,
+    database.$executeRaw`
+      DELETE FROM "VerificationAsset"
+       WHERE "id" = ${ids.verificationAsset}::uuid
+    `,
+    database.$executeRaw`
+      DELETE FROM "StudentVerification"
+       WHERE "id" = ${ids.verification}::uuid
+    `,
+    database.$executeRaw`
+      DELETE FROM "GroupMember"
+       WHERE "groupId" = ${ids.group}::uuid
+    `,
+    database.$executeRaw`
+      DELETE FROM "CompanionGroup"
+       WHERE "id" = ${ids.group}::uuid
+    `,
+    database.$executeRaw`
+      DELETE FROM "TravelDemand"
+       WHERE "id" IN (${ids.demandA}::uuid, ${ids.demandB}::uuid)
+    `,
+    database.$executeRaw`
+      DELETE FROM "Route"
+       WHERE "id" = ${ids.route}::uuid
+    `,
+    database.$executeRaw`
+      DELETE FROM "Place"
+       WHERE "id" IN (${ids.origin}::uuid, ${ids.destination}::uuid)
+    `,
+    database.$executeRaw`
+      DELETE FROM "User"
+       WHERE "id" IN (${ids.userA}::uuid, ${ids.userB}::uuid)
+    `,
+    database.$executeRaw`
+      DELETE FROM "Campus"
+       WHERE "id" = ${ids.campus}::uuid
+    `,
+  ]);
+}
+
 describe.runIf(runNativePostgres)("native PostgreSQL 16 guards", () => {
+  beforeAll(async () => {
+    await cleanupNativeFixtures();
+  });
+
   afterAll(async () => {
-    await database.$disconnect();
+    try {
+      await cleanupNativeFixtures();
+    } finally {
+      await database.$disconnect();
+    }
   });
 
   it("rolls back a failed transaction", async () => {
