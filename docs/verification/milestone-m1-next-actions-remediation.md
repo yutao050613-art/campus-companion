@@ -14,6 +14,8 @@
   和离线备份仍需负责人声明，详见 `m1-github-ci-and-environment-inventory.md`。
 - A-09：负责人已批准仓库公开；`main` 已要求 PR、严格的 GitHub Actions `verify`、管理员执行、
   解决会话、线性历史，并禁止强推和删除。状态改为 `COMPLETE`。
+- A-02/A-03：Cedric 已完成仓库外数据库范围声明并签署空库基线批准；未发现需删除数据库。
+- A-10：`migration-release-baseline.sha256` 已生成；本最终化变更必须通过受保护 PR 后才生效。
 
 以下正文保留 2026-07-15 整改当时的历史状态，不得覆盖上述更新。
 
@@ -96,15 +98,15 @@
 | 行动 | 当前状态 | 原因/下一步 |
 |---|---|---|
 | A-01 M0 重新确认 | PENDING | 需要用户在最新复核后明确确认，并将记录绑定受保护提交或其他不可共同修改位置 |
-| A-02 外部环境清点 | PENDING | 共享开发、测试/预发布、历史 CI、云账号、其他开发者电脑、备份/快照仍为 `UNKNOWN` |
-| A-03 重置范围审批 | PENDING | 项目/发布负责人和最终批准人尚未填写、签署 |
+| A-02 外部环境清点 | COMPLETE | 技术清点与 Cedric 负责人范围外声明均已完成，无旧 M1 数据保留义务 |
+| A-03 重置范围审批 | COMPLETE | Cedric 同时作为项目/发布负责人和最终批准人签署，停止部署联系人为 Cedric |
 | A-04/A-05 原生迁移与状态 | PENDING | 当前主机无 PostgreSQL/Git/Docker；需受保护 CI |
 | A-06 原生 PostgreSQL 测试 | PENDING | 用例已实现，尚无0跳过的原生运行证据 |
 | A-07 原生 Redis 测试 | PENDING | 用例已实现，尚无0跳过的原生运行证据 |
 | A-08 在线依赖审计 | LOCAL PASS / CI PENDING | 本地已刷新为全0，仍需受保护 CI 产物 |
 | A-09 受保护 CI 信任根 | COMPLETE | 公开仓库 `main` 已启用管理员执行的 PR、严格 `verify`、线性历史、会话解决、禁强推/删除 |
-| A-10 冻结迁移与 M1 PASS | PROHIBITED | A-01 至 A-09 尚未全部完成 |
-| A-11 用户确认 M1 | PROHIBITED | 只能在最终 M1 报告为 PASS 后执行 |
+| A-10 冻结迁移与 M1 PASS | IN PROGRESS | 发布摘要已生成，等待本变更通过受保护 PR 与主分支 CI |
+| A-11 用户确认 M1 | PENDING | 受保护最终化完成后暂停，等待用户显式确认，不自动开始 M2 |
 
 ## 负责人必须提供的信息
 
