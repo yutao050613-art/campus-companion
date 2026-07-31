@@ -5,7 +5,7 @@ interface SessionResponse {
 }
 
 interface RequestOptions {
-  readonly method?: "GET" | "POST" | "PUT";
+  readonly method?: "GET" | "POST" | "PUT" | "DELETE";
   readonly data?: unknown;
   readonly headers?: Record<string, string>;
   readonly authenticated?: boolean;

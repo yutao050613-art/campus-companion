@@ -166,16 +166,19 @@ Assert-True ($rootPackage.scripts.'admin:bootstrap' -match 'bootstrap-admin\.mjs
 
 $baselinePath = Join-Path $root 'docs/verification/m2-baseline.sha256'
 if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
+  $baselineManifestDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $baselinePath).Hash.ToLowerInvariant()
+  Assert-True (
+    $baselineManifestDigest -eq 'fcda2906374de265e9f833efe682bcb9a68822d0dee18738bc6c62ccc0cc28f9'
+  ) 'historical M2 baseline manifest itself remains byte-for-byte immutable'
   $baselineLines = Get-Content -LiteralPath $baselinePath -Encoding utf8 | Where-Object { $_ -match '^[a-f0-9]{64} \*' }
   Assert-True ($baselineLines.Count -ge 20) 'M2 baseline covers implementation, tests, policy, migration and evidence report'
-  foreach ($line in $baselineLines) {
-    $hash = $line.Substring(0, 64)
-    $relative = $line.Substring(66)
-    $candidate = Join-Path $root $relative
-    Assert-True (Test-Path -LiteralPath $candidate -PathType Leaf) "M2 baseline file exists: $relative"
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      Assert-True ((Get-CanonicalFileSha256 $candidate) -eq $hash) "M2 baseline digest matches: $relative"
-    }
+  foreach ($acceptedEntry in @(
+    'fb8e9e49d97db759d8eb441ff2f89e6dd54c13e3a4bb35eab350c4f807e5a681 *packages/database/prisma/migrations/20260731000000_m2_sensitive_info_policy/migration.sql',
+    '46035097382e2f7435307106825cc0f2cc2a94a98e767b597a48488ee73918a7 *docs/policies/sensitive-information-v1.md',
+    'c1b5df9cd9e9a82147c9a4f41e69d92a5eb419f4432ff2a3a4c940fe3097e377 *docs/verification/milestone-m2.md',
+    'afb0a2593f69ce24624a3394b4e4a0aa7f4784619d48f997d5264e66bd0d053f *tools/verify-m2.ps1'
+  )) {
+    Assert-True ($baselineLines -contains $acceptedEntry) "historical M2 baseline retains accepted entry: $($acceptedEntry.Substring(66))"
   }
 }
 

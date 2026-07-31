@@ -1,0 +1,13 @@
+<view class="page">
+  <view class="card" wx:if="{{group}}">
+    <view class="row"><text class="title">候选组</text><text class="state">{{group.state}}</text></view>
+    <text class="muted">{{group.accountCount}} 个认证账号 · {{group.occupiedSeats}} / 4 座</text>
+    <view class="member" wx:for="{{group.members}}" wx:key="memberId"><text>{{item.displayName}}</text><text>{{item.seatCount}} 座</text></view>
+    <button wx:if="{{group.state === 'RECRUITING' || group.state === 'READY'}}" loading="{{busy}}" disabled="{{busy}}" bindtap="join">加入此组</button>
+    <button class="secondary" wx:if="{{group.state === 'RECRUITING' || group.state === 'READY'}}" loading="{{busy}}" disabled="{{busy}}" bindtap="leave">离开此组</button>
+    <button wx:if="{{group.state === 'READY'}}" loading="{{busy}}" disabled="{{busy}}" bindtap="startFormation">发起 5 分钟成团确认</button>
+    <button wx:if="{{group.activeRoundId}}" bindtap="openFormation">进入当前确认轮次</button>
+  </view>
+  <view class="card"><text class="muted">{{message}}</text></view>
+  <view class="card warning"><text>确认不会扣款。全员确认后只进入 M4 的待付款边界；M3 不创建订单、不收费、不公开微信号。</text></view>
+</view>

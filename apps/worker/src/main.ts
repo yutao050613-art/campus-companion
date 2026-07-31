@@ -3,6 +3,7 @@ import { createLogger } from "@campus/observability";
 import { LocalVerificationObjectStore } from "@campus/verification";
 import { Worker } from "bullmq";
 import { loadWorkerConfig } from "./config";
+import { PrismaFormationDeadlineRepository, runFormationDeadlineSweep } from "./formation-timeout";
 import { toRedisConnection } from "./redis-connection";
 import { processSystemJob } from "./system-processor";
 import {
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
   const logger = createLogger({ service: "campus-worker", level: config.logLevel });
   const prisma = createPrismaClient();
   const deletionRepository = new PrismaVerificationAssetDeletionRepository(prisma);
+  const formationRepository = new PrismaFormationDeadlineRepository(prisma);
   const objectStore = new LocalVerificationObjectStore({
     rootDirectory: config.localObjectStoreRoot,
     uploadHmacSecret: config.localObjectUploadSecret,
@@ -42,6 +44,24 @@ async function main(): Promise<void> {
   const deletionTimer = setInterval(() => void runDeletionSweep(), 60_000);
   deletionTimer.unref();
   void runDeletionSweep();
+  let formationSweepRunning = false;
+  const runFormationSweep = async (): Promise<void> => {
+    if (formationSweepRunning) return;
+    formationSweepRunning = true;
+    try {
+      const result = await runFormationDeadlineSweep(formationRepository);
+      if (result.roundsInvalidated + result.groupsExpired > 0) {
+        logger.info(result, "formation deadline sweep completed");
+      }
+    } catch (error) {
+      logger.error({ err: error }, "formation deadline sweep failed");
+    } finally {
+      formationSweepRunning = false;
+    }
+  };
+  const formationTimer = setInterval(() => void runFormationSweep(), 15_000);
+  formationTimer.unref();
+  void runFormationSweep();
   const worker = new Worker(
     "system",
     async (job) => {
@@ -63,6 +83,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, "worker shutting down");
     clearInterval(deletionTimer);
+    clearInterval(formationTimer);
     await worker.close();
     await prisma.$disconnect();
   };

@@ -16,3 +16,8 @@
   line-height: 1.7;
 }
 
+.label { display: block; margin: 18rpx 0 10rpx; color: #4d6157; font-weight: 700; }
+.picker { padding: 22rpx; border: 1rpx solid #cfdad4; border-radius: 16rpx; background: #f8fbf9; }
+.row { display: flex; justify-content: space-between; margin-bottom: 12rpx; }
+.strong { font-weight: 800; }
+.group { border-left: 8rpx solid #176b4d; }

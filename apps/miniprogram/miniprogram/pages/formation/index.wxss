@@ -1,0 +1,7 @@
+.row { display: flex; justify-content: space-between; margin-bottom: 18rpx; }
+.title { font-size: 44rpx; font-weight: 800; }
+.state { color: #176b4d; font-weight: 800; }
+label { display: block; margin-top: 28rpx; line-height: 1.7; }
+button { margin-top: 24rpx; color: #fff; background: #176b4d; }
+.decline { color: #8b2e2e; background: #fff1f1; }
+.warning { border-color: #ead69d; background: #fff9e8; line-height: 1.7; }

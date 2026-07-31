@@ -1,1 +1,4 @@
-
+.title { display: block; margin-bottom: 14rpx; font-size: 48rpx; font-weight: 800; }
+.row { display: flex; justify-content: space-between; margin-bottom: 12rpx; }
+.strong { color: #176b4d; font-weight: 800; }
+button { margin-top: 20rpx; color: #8b2e2e; background: #fff1f1; }

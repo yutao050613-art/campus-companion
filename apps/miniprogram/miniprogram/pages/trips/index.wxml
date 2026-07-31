@@ -1,2 +1,10 @@
-<view class="page"><view class="card"><view>{{title}}</view><text class="muted">{{state}}</text></view></view>
-
+<view class="page">
+  <view class="card"><text class="title">我的同行</text><text class="muted">{{message}}</text></view>
+  <view class="card" wx:for="{{demands}}" wx:key="id">
+    <view class="row" data-group="{{item.groupId}}" data-demand="{{item.id}}" bindtap="openDemand">
+      <text class="strong">{{item.status}}</text><text>{{item.seatCount}} 座</text>
+    </view>
+    <text class="muted">{{item.windowStart}}</text>
+    <button wx:if="{{item.status === 'OPEN' || item.status === 'GROUPED'}}" data-demand="{{item.id}}" catchtap="cancel">撤销需求</button>
+  </view>
+</view>
