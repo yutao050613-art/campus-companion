@@ -310,8 +310,16 @@ if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
   }
 }
 
+$generatedDirectoryPattern = '[\\/](dist|coverage|generated)[\\/]'
+foreach ($samplePath in @(
+  'C:\workspace\packages\database\generated\client.js',
+  '/home/runner/work/packages/database/generated/client.js'
+)) {
+  Assert-True ($samplePath -match $generatedDirectoryPattern) "generated-output filter handles path: $samplePath"
+}
+
 $allSourceText = Get-ChildItem (Join-Path $root 'apps'), (Join-Path $root 'packages'), (Join-Path $root 'infra'), (Join-Path $root 'docs') -File -Recurse |
-  Where-Object { $_.FullName -notmatch '\\(dist|coverage|generated)\\' } |
+  Where-Object { $_.FullName -notmatch $generatedDirectoryPattern } |
   ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8 }
 $joinedSource = $allSourceText -join "`n"
 Assert-True (-not ($joinedSource -match '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----')) 'repository contains no private key material'
