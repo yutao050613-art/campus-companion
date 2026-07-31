@@ -17,13 +17,13 @@
     "test": "pnpm build:packages && pnpm -r --if-present test",
     "test:coverage": "pnpm build:packages && pnpm -r --if-present test:coverage",
     "api:lint": "redocly lint docs/api/openapi.yaml --config redocly.yaml",
-    "security:static": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/security-static.ps1",
+    "security:static": "node ./tools/run-powershell.mjs ./tools/security-static.ps1",
     "db:generate": "pnpm --filter @campus/database db:generate",
     "db:validate": "pnpm --filter @campus/database db:validate",
     "db:migrate": "pnpm --filter @campus/database db:migrate",
     "db:status": "pnpm --filter @campus/database db:status",
-    "verify:m0": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/verify-m0.ps1",
-    "verify:m1": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/verify-m1.ps1",
+    "verify:m0": "node ./tools/run-powershell.mjs ./tools/verify-m0.ps1",
+    "verify:m1": "node ./tools/run-powershell.mjs ./tools/verify-m1.ps1",
     "check": "pnpm verify:m0 && pnpm api:lint && pnpm lint && pnpm security:static && pnpm typecheck && pnpm test && pnpm test:coverage && pnpm build && pnpm db:validate && pnpm verify:m1"
   },
   "devDependencies": {

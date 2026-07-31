@@ -32,6 +32,7 @@ $requiredFiles = @(
   'tsconfig.base.json',
   'biome.json',
   'redocly.yaml',
+  'tools/run-powershell.mjs',
   'tools/security-static.ps1',
   'tools/assert-native-vitest-report.mjs',
   '.github/workflows/ci.yml',
@@ -79,6 +80,16 @@ Assert-True ($rootPackage.engines.node -eq '>=22.13.0 <25') 'supported Node rang
 Assert-True ($rootPackage.scripts.check -match 'verify:m1') 'full check includes M1 verification'
 Assert-True ($rootPackage.scripts.check -match 'security:static') 'full check includes static security scanning'
 Assert-True ($rootPackage.scripts.'db:status' -match '@campus/database db:status') 'root exposes the migration status gate'
+foreach ($scriptName in @('verify:m0', 'verify:m1', 'security:static')) {
+  Assert-True (
+    $rootPackage.scripts.$scriptName -match '^node \./tools/run-powershell\.mjs \./tools/.+\.ps1$'
+  ) "cross-platform PowerShell launcher is used by $scriptName"
+}
+
+$powerShellLauncher = Read-Utf8 'tools/run-powershell.mjs'
+Assert-True ($powerShellLauncher -match 'process\.platform === "win32"') 'PowerShell launcher detects Windows'
+Assert-True ($powerShellLauncher -match '"powershell\.exe" : "pwsh"') 'PowerShell launcher selects the supported executable per platform'
+Assert-True ($powerShellLauncher -match 'spawnSync\(executable') 'PowerShell launcher avoids a command shell'
 
 $packageFiles = Get-ChildItem (Join-Path $root 'apps'), (Join-Path $root 'packages') -Filter package.json -File -Recurse
 foreach ($file in $packageFiles) {
