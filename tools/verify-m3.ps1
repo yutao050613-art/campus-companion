@@ -164,6 +164,10 @@ $apiCoverage = Read-Utf8 'apps/api/vitest.config.ts'
 foreach ($metric in @('statements', 'branches', 'functions', 'lines')) {
   Assert-True ($apiCoverage -match "$metric\s*:\s*80") "API $metric coverage threshold remains 80 percent"
 }
+Assert-True ($apiCoverage -match 'fileParallelism: process\.env\.NATIVE_POSTGRES_TESTS !== "true"') 'native PostgreSQL API test files run serially while request-level races remain explicit'
+$healthTest = Read-Utf8 'apps/api/test/health.e2e.test.ts'
+Assert-True ($healthTest -match 'mkdtemp\(join\(tmpdir\(\), "campus-api-health-"\)\)') 'health upload test uses a dedicated temporary object-store directory'
+Assert-True ($healthTest -match 'await rm\(objectStoreRoot, \{ recursive: true, force: true \}\)') 'health upload test removes its temporary object-store directory'
 
 $workflow = Read-Utf8 '.github/workflows/m3-quality.yml'
 foreach ($guard in @(
@@ -191,7 +195,7 @@ Assert-True ($migrationDirectories.Count -eq 2) 'M3 requires no database migrati
 $baselinePath = Join-Path $root 'docs/verification/m3-baseline.sha256'
 if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
   $manifestDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $baselinePath).Hash.ToLowerInvariant()
-  Assert-True ($manifestDigest -eq 'd5cac0231aef26f0ceea2cb5a5eec3389cfed6abc891ba7a72005cb06d377fa7') 'M3 baseline manifest itself remains byte-for-byte immutable'
+  Assert-True ($manifestDigest -eq '90b1d9017cac59cfe4632ddcb9497073ca64f73b70e2689e9365190662429886') 'M3 baseline manifest itself remains byte-for-byte immutable'
   $baselineLines = Get-Content -LiteralPath $baselinePath -Encoding utf8 | Where-Object { $_ -match '^[a-f0-9]{64} \*' }
   Assert-True ($baselineLines.Count -ge 20) 'M3 baseline covers implementation, tests, workflow and verification evidence'
 }

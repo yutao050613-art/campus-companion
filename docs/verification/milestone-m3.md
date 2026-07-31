@@ -122,3 +122,17 @@ M3 不能被标记为最终验收，也不能开始 M4。
 3. 保存并复算 M3 证据 Artifact 的 SHA-256 清单；
 4. 将受保护 CI 证据补录到本报告并再次通过门禁；
 5. 由 Cedric 明确确认 M3 验收通过；确认前暂停，不开始 M4。
+
+## CI-native-suite isolation remediation
+
+The first protected M3 CI attempt exposed a test-harness race rather than a product
+defect: native PostgreSQL API test files concurrently reset the same test database.
+The remediation serializes *test files only* when `NATIVE_POSTGRES_TESTS=true`; the
+intentional request-level concurrency races remain in the native M2/M3 tests. The
+health API test now also creates and removes a dedicated temporary object-store
+directory, preventing it from reading a developer-machine path.
+
+The complete CI-equivalent command passed locally with native PostgreSQL and Redis
+enabled after this remediation. The final protected-CI run ID, artifact ID, and
+downloaded SHA-256 manifest verification will be recorded here before M3 is proposed
+for final acceptance.

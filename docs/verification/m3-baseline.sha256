@@ -1,5 +1,6 @@
 0f04053599bb328bfb7225a35144498ff4b90c16589c4a4b47c1c68253c2b1f3 *.github/workflows/m3-quality.yml
 14c7163f2bdbb3ef7db69c1fdc09cc0b1cd9632ecfdbf6a8c2b8c614258a2c5c *apps/api/package.json
+ef72a8bd7a5fb9bce5ee32ea8f42eeb3755206bb58994bbccb3c6041801dff0f *apps/api/vitest.config.ts
 e1f098e62ad673403b4492f22641bf73e157319424d738925c0e6bf173b68dbf *apps/api/src/app.module.ts
 2517a574c93484830bc44af550c4bca6129593f918fb4668d59e37d56e4a9b58 *apps/api/src/catalog/catalog.controller.ts
 e7434f8b886b388d9932fa27915d33f43e8a22c7dd2771fb62f77a1745eca4cf *apps/api/src/catalog/catalog.service.ts
@@ -9,6 +10,7 @@ c72f71b2d45408b92c59244ce46b6e07fd25bea46828c4e554d20b6756236ad4 *apps/api/src/g
 6775e9e4c455fe1a9ae9a6d340e35f4f73d1f879eb7d682fe939d3fe7c9cbc71 *apps/api/src/m2/idempotency.service.ts
 b96b15ae3cf16253afc6e6a8ecc490cbd0eadc721d1dc5ce618cea9c1305673e *apps/api/test/catalog.service.test.ts
 a8438686691483f53951af8e611532906cc4d3e40ea47045b06c19b825f5b328 *apps/api/test/grouping.service.test.ts
+8b444effa872c41437c1bb98b8e089ddd8f919db2dddd4b97208b8c82fca0566 *apps/api/test/health.e2e.test.ts
 1d54869c929c7b35c91042be3ac791a4c2158811edba90e24debc894c41504b5 *apps/api/test/m3-controllers.test.ts
 12c7a5de2cded27c1f6f0423161dea81bf06522d30b6d6b0c234e6c582e85fb3 *apps/api/test/native-m3.e2e.test.ts
 dd44395794f38c7c824dc2c95649d5aebc5025b89dd2ee6b2ee223fde4eab4ba *apps/api/test/route-windows.test.ts

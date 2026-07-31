@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Writable } from "node:stream";
 import type { VerificationObjectStore } from "@campus/verification";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -8,8 +11,13 @@ import { VERIFICATION_OBJECT_STORE } from "../src/m2/providers";
 
 describe("API foundation", () => {
   let app: NestFastifyApplication;
+  let objectStoreRoot = "";
+  let priorObjectStoreRoot: string | undefined;
 
   beforeEach(async () => {
+    objectStoreRoot = await mkdtemp(join(tmpdir(), "campus-api-health-"));
+    priorObjectStoreRoot = process.env["LOCAL_OBJECT_STORE_ROOT"];
+    process.env["LOCAL_OBJECT_STORE_ROOT"] = objectStoreRoot;
     app = await createApp({
       level: "silent",
       destination: new Writable({ write: (_chunk, _encoding, callback) => callback() }),
@@ -19,7 +27,16 @@ describe("API foundation", () => {
   });
 
   afterEach(async () => {
-    await app.close();
+    try {
+      await app.close();
+    } finally {
+      if (priorObjectStoreRoot === undefined) {
+        delete process.env["LOCAL_OBJECT_STORE_ROOT"];
+      } else {
+        process.env["LOCAL_OBJECT_STORE_ROOT"] = priorObjectStoreRoot;
+      }
+      if (objectStoreRoot !== "") await rm(objectStoreRoot, { recursive: true, force: true });
+    }
   });
 
   it("serves a minimal health response with a server-generated request id", async () => {
