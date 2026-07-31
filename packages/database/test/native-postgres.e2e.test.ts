@@ -74,33 +74,46 @@ describe.runIf(runNativePostgres)("native PostgreSQL 16 guards", () => {
   });
 
   it("serializes concurrent joins and never creates a fifth seat", async () => {
-    await database.$executeRawUnsafe(`
-      INSERT INTO "Campus" ("id", "name", "updatedAt")
-      VALUES ('${ids.campus}', 'Native Campus', NOW());
-      INSERT INTO "User" ("id", "campusId", "wechatSubject", "displayName", "updatedAt") VALUES
-        ('${ids.userA}', '${ids.campus}', 'native-wx-a', 'A', NOW()),
-        ('${ids.userB}', '${ids.campus}', 'native-wx-b', 'B', NOW());
-      INSERT INTO "Place" ("id", "campusId", "name", "type", "updatedAt") VALUES
-        ('${ids.origin}', '${ids.campus}', 'Native Gate', 'CAMPUS_GATE', NOW()),
-        ('${ids.destination}', '${ids.campus}', 'Native Station', 'TRANSIT_HUB', NOW());
-      INSERT INTO "Route" (
-        "id", "campusId", "originId", "destinationId", "updatedAt"
-      ) VALUES (
-        '${ids.route}', '${ids.campus}', '${ids.origin}', '${ids.destination}', NOW()
-      );
-      INSERT INTO "TravelDemand" (
-        "id", "userId", "campusId", "routeId", "windowStart", "windowEnd",
-        "seatCount", "luggageSize", "genderPreference", "updatedAt"
-      ) VALUES
-        ('${ids.demandA}', '${ids.userA}', '${ids.campus}', '${ids.route}', NOW() + INTERVAL '1 hour', NOW() + INTERVAL '90 minutes', 2, 'NONE', 'ANY', NOW()),
-        ('${ids.demandB}', '${ids.userB}', '${ids.campus}', '${ids.route}', NOW() + INTERVAL '1 hour', NOW() + INTERVAL '90 minutes', 3, 'NONE', 'ANY', NOW());
-      INSERT INTO "CompanionGroup" (
-        "id", "campusId", "routeId", "windowStart", "windowEnd", "updatedAt"
-      ) VALUES (
-        '${ids.group}', '${ids.campus}', '${ids.route}', NOW() + INTERVAL '1 hour',
-        NOW() + INTERVAL '90 minutes', NOW()
-      );
-    `);
+    await database.$transaction([
+      database.$executeRaw`
+        INSERT INTO "Campus" ("id", "name", "updatedAt")
+        VALUES (${ids.campus}::uuid, 'Native Campus', NOW())
+      `,
+      database.$executeRaw`
+        INSERT INTO "User" ("id", "campusId", "wechatSubject", "displayName", "updatedAt") VALUES
+          (${ids.userA}::uuid, ${ids.campus}::uuid, 'native-wx-a', 'A', NOW()),
+          (${ids.userB}::uuid, ${ids.campus}::uuid, 'native-wx-b', 'B', NOW())
+      `,
+      database.$executeRaw`
+        INSERT INTO "Place" ("id", "campusId", "name", "type", "updatedAt") VALUES
+          (${ids.origin}::uuid, ${ids.campus}::uuid, 'Native Gate', 'CAMPUS_GATE', NOW()),
+          (${ids.destination}::uuid, ${ids.campus}::uuid, 'Native Station', 'TRANSIT_HUB', NOW())
+      `,
+      database.$executeRaw`
+        INSERT INTO "Route" (
+          "id", "campusId", "originId", "destinationId", "updatedAt"
+        ) VALUES (
+          ${ids.route}::uuid, ${ids.campus}::uuid, ${ids.origin}::uuid,
+          ${ids.destination}::uuid, NOW()
+        )
+      `,
+      database.$executeRaw`
+        INSERT INTO "TravelDemand" (
+          "id", "userId", "campusId", "routeId", "windowStart", "windowEnd",
+          "seatCount", "luggageSize", "genderPreference", "updatedAt"
+        ) VALUES
+          (${ids.demandA}::uuid, ${ids.userA}::uuid, ${ids.campus}::uuid, ${ids.route}::uuid, NOW() + INTERVAL '1 hour', NOW() + INTERVAL '90 minutes', 2, 'NONE', 'ANY', NOW()),
+          (${ids.demandB}::uuid, ${ids.userB}::uuid, ${ids.campus}::uuid, ${ids.route}::uuid, NOW() + INTERVAL '1 hour', NOW() + INTERVAL '90 minutes', 3, 'NONE', 'ANY', NOW())
+      `,
+      database.$executeRaw`
+        INSERT INTO "CompanionGroup" (
+          "id", "campusId", "routeId", "windowStart", "windowEnd", "updatedAt"
+        ) VALUES (
+          ${ids.group}::uuid, ${ids.campus}::uuid, ${ids.route}::uuid,
+          NOW() + INTERVAL '1 hour', NOW() + INTERVAL '90 minutes', NOW()
+        )
+      `,
+    ]);
 
     const insertMember = (
       memberId: string,
@@ -108,14 +121,14 @@ describe.runIf(runNativePostgres)("native PostgreSQL 16 guards", () => {
       demandId: string,
       seatCount: number,
     ): Promise<number> =>
-      database.$executeRawUnsafe(`
+      database.$executeRaw`
         INSERT INTO "GroupMember" (
           "id", "campusId", "groupId", "userId", "demandId", "seatCount", "updatedAt"
         ) VALUES (
-          '${memberId}', '${ids.campus}', '${ids.group}', '${userId}', '${demandId}',
-          ${seatCount}, NOW()
-        );
-      `);
+          ${memberId}::uuid, ${ids.campus}::uuid, ${ids.group}::uuid, ${userId}::uuid,
+          ${demandId}::uuid, ${seatCount}, NOW()
+        )
+      `;
 
     for (let attempt = 1; attempt <= 20; attempt += 1) {
       const results = await Promise.allSettled([
@@ -147,70 +160,84 @@ describe.runIf(runNativePostgres)("native PostgreSQL 16 guards", () => {
   });
 
   it("atomically allows only one of two concurrent verification asset grant consumptions", async () => {
-    await database.$executeRawUnsafe(`
-      INSERT INTO "Campus" ("id", "name", "updatedAt")
-      VALUES ('${ids.campus}', 'Native Campus', NOW())
-      ON CONFLICT ("id") DO NOTHING;
-      INSERT INTO "User" ("id", "campusId", "wechatSubject", "displayName", "updatedAt")
-      VALUES ('${ids.userA}', '${ids.campus}', 'native-wx-a', 'A', NOW())
-      ON CONFLICT ("id") DO NOTHING;
-      INSERT INTO "StudentVerification" (
-        "id", "userId", "campusId", "studentNumberDigest", "studentNumberLast4",
-        "status", "consentPolicyId", "updatedAt"
-      )
-      SELECT
-        '${ids.verification}', '${ids.userA}', '${ids.campus}',
-        'abababababababababababababababababababababababababababababababab',
-        '9876', 'AWAITING_UPLOAD', "id", NOW()
-        FROM "PolicyVersion"
-       WHERE "type" = 'CONTACT_SHARING' AND "version" = 'contact-sharing-v1'
-      ON CONFLICT ("id") DO NOTHING;
-      INSERT INTO "VerificationAsset" (
-        "id", "campusId", "verificationId", "objectKey", "uploadExpiresAt", "deleteAfter"
-      ) VALUES (
-        '${ids.verificationAsset}', '${ids.campus}', '${ids.verification}',
-        'native/private/verification', NOW() + INTERVAL '15 minutes', NOW() + INTERVAL '1 day'
-      ) ON CONFLICT ("id") DO NOTHING;
-      INSERT INTO "AdminUser" (
-        "id", "username", "passwordHash", "totpSecretCiphertext", "keyVersion", "updatedAt"
-      ) VALUES (
-        '${ids.admin}', 'native-reviewer', 'argon2id-native-test', decode('00', 'hex'),
-        'kms-native-v1', NOW()
-      ) ON CONFLICT ("id") DO NOTHING;
-      INSERT INTO "AdminSession" (
-        "id", "adminUserId", "sessionTokenHash", "csrfTokenHash", "expiresAt",
-        "lastReauthenticatedAt"
-      ) VALUES (
-        '${ids.adminSession}', '${ids.admin}',
-        'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd',
-        'efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef',
-        NOW() + INTERVAL '10 minutes', NOW()
-      ) ON CONFLICT ("id") DO NOTHING;
-    `);
+    await database.$transaction([
+      database.$executeRaw`
+        INSERT INTO "Campus" ("id", "name", "updatedAt")
+        VALUES (${ids.campus}::uuid, 'Native Campus', NOW())
+        ON CONFLICT ("id") DO NOTHING
+      `,
+      database.$executeRaw`
+        INSERT INTO "User" ("id", "campusId", "wechatSubject", "displayName", "updatedAt")
+        VALUES (${ids.userA}::uuid, ${ids.campus}::uuid, 'native-wx-a', 'A', NOW())
+        ON CONFLICT ("id") DO NOTHING
+      `,
+      database.$executeRaw`
+        INSERT INTO "StudentVerification" (
+          "id", "userId", "campusId", "studentNumberDigest", "studentNumberLast4",
+          "status", "consentPolicyId", "updatedAt"
+        )
+        SELECT
+          ${ids.verification}::uuid, ${ids.userA}::uuid, ${ids.campus}::uuid,
+          'abababababababababababababababababababababababababababababababab',
+          '9876', 'AWAITING_UPLOAD', "id", NOW()
+          FROM "PolicyVersion"
+         WHERE "type" = 'CONTACT_SHARING' AND "version" = 'contact-sharing-v1'
+        ON CONFLICT ("id") DO NOTHING
+      `,
+      database.$executeRaw`
+        INSERT INTO "VerificationAsset" (
+          "id", "campusId", "verificationId", "objectKey", "uploadExpiresAt", "deleteAfter"
+        ) VALUES (
+          ${ids.verificationAsset}::uuid, ${ids.campus}::uuid, ${ids.verification}::uuid,
+          'native/private/verification', NOW() + INTERVAL '15 minutes',
+          NOW() + INTERVAL '1 day'
+        ) ON CONFLICT ("id") DO NOTHING
+      `,
+      database.$executeRaw`
+        INSERT INTO "AdminUser" (
+          "id", "username", "passwordHash", "totpSecretCiphertext", "keyVersion", "updatedAt"
+        ) VALUES (
+          ${ids.admin}::uuid, 'native-reviewer', 'argon2id-native-test',
+          decode('00', 'hex'), 'kms-native-v1', NOW()
+        ) ON CONFLICT ("id") DO NOTHING
+      `,
+      database.$executeRaw`
+        INSERT INTO "AdminSession" (
+          "id", "adminUserId", "sessionTokenHash", "csrfTokenHash", "expiresAt",
+          "lastReauthenticatedAt"
+        ) VALUES (
+          ${ids.adminSession}::uuid, ${ids.admin}::uuid,
+          'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd',
+          'efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef',
+          NOW() + INTERVAL '10 minutes', NOW()
+        ) ON CONFLICT ("id") DO NOTHING
+      `,
+    ]);
 
     for (let grantAttempt = 1; grantAttempt <= 20; grantAttempt += 1) {
       const suffix = grantAttempt.toString().padStart(12, "0");
       const grantId = `20000000-0000-0000-0000-${suffix}`;
       const tokenDigest = grantAttempt.toString(16).padStart(64, "0");
-      await database.$executeRawUnsafe(`
+      await database.$executeRaw`
         INSERT INTO "VerificationAssetAccessGrant" (
           "id", "campusId", "verificationId", "adminUserId", "adminSessionId",
           "tokenDigest", "requestId", "expiresAt"
         ) VALUES (
-          '${grantId}', '${ids.campus}', '${ids.verification}', '${ids.admin}',
-          '${ids.adminSession}', '${tokenDigest}', 'native-grant-issue-${grantAttempt}',
+          ${grantId}::uuid, ${ids.campus}::uuid, ${ids.verification}::uuid,
+          ${ids.admin}::uuid, ${ids.adminSession}::uuid, ${tokenDigest},
+          ${`native-grant-issue-${grantAttempt}`},
           NOW() + INTERVAL '30 seconds'
-        );
-      `);
+        )
+      `;
 
       const consume = (competitor: number): Promise<Array<{ grantId: string }>> =>
-        database.$queryRawUnsafe(`
+        database.$queryRaw<Array<{ grantId: string }>>`
           SELECT * FROM "consume_verification_asset_access_grant"(
-            '${tokenDigest}', '${ids.adminSession}', '${ids.campus}',
-            '3${competitor}000000-0000-0000-0000-${suffix}',
-            'native-grant-consume-${grantAttempt}-${competitor}'
+            ${tokenDigest}, ${ids.adminSession}::uuid, ${ids.campus}::uuid,
+            ${`3${competitor}000000-0000-0000-0000-${suffix}`}::uuid,
+            ${`native-grant-consume-${grantAttempt}-${competitor}`}
           )
-        `);
+        `;
 
       const results = await Promise.all([consume(1), consume(2)]);
       expect(results.flat(), `grant attempt ${grantAttempt} successful consumptions`).toHaveLength(
