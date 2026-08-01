@@ -55,11 +55,16 @@ Page({
         round: response.data,
         message:
           response.data.state === "PAYING"
-            ? "全员已确认，已到达 M4 待付款边界；当前版本没有支付入口。"
+            ? "全员已确认，请先填写微信号并完成每账号 0.99 元信息服务费。"
             : response.data.state === "INVALIDATED"
               ? "本轮已作废，候选组可重新组织。"
               : "已记录不可变决定，等待其他成员。",
       });
+      if (response.data.state === "PAYING") {
+        wx.navigateTo({
+          url: `/pages/payment/index?roundId=${response.data.id}&groupId=${response.data.groupId}`,
+        });
+      }
     } catch (error) {
       this.setData({ message: error instanceof Error ? error.message : "确认失败" });
     } finally {

@@ -217,5 +217,9 @@ function isUniqueConstraint(error: unknown): boolean {
 }
 
 function isSerializationConflict(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+  return (
+    (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") ||
+    (error instanceof Prisma.PrismaClientUnknownRequestError &&
+      /\b(?:40P01|40001)\b/u.test(error.message))
+  );
 }

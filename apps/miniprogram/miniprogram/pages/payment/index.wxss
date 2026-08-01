@@ -1,0 +1,5 @@
+.title { font-size: 42rpx; font-weight: 800; }
+.label { display: block; margin-bottom: 16rpx; font-weight: 700; }
+input { padding: 20rpx; border: 1rpx solid #dce5df; border-radius: 12rpx; }
+button { margin-top: 24rpx; color: #fff; background: #176b4d; }
+.warning { border-color: #ead69d; background: #fff9e8; line-height: 1.7; }

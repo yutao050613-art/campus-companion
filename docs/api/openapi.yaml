@@ -141,9 +141,9 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
   /me/contact:
-    put:
+    post:
       tags: [Auth]
-      summary: Replace the encrypted WeChat contact identifier
+      summary: Store the authenticated user's encrypted WeChat contact identifier
       operationId: updateMyContact
       description: 服务端校验后加密保存；响应不回显微信号明文。
       parameters:
@@ -160,12 +160,22 @@ paths:
                 wechatId:
                   type: string
                   minLength: 6
-                  maxLength: 32
-                  pattern: '^[A-Za-z][-_A-Za-z0-9]{5,31}$'
+                  maxLength: 20
+                  pattern: '^[A-Za-z][-_A-Za-z0-9]{5,19}$'
       responses:
-        '204': { description: 已加密保存且不会回显明文 }
+        '200':
+          description: 已加密保存且不会回显明文
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [hasWechatContact]
+                properties:
+                  hasWechatContact: { type: boolean, const: true }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /verifications:
     post:
       tags: [Verification]
@@ -583,6 +593,37 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /service-orders/{orderId}/mock-settlement:
+    post:
+      tags: [Payments]
+      summary: Settle a deterministic mock intent in development or test only
+      operationId: settleMockServiceOrder
+      description: >-
+        仅 M4 开发与测试环境可用；服务端将 intent 与其自有商户订单重新比对。
+        生产和预发布在应用启动时拒绝 mock provider，M5 将以验签的微信支付回调取代此入口。
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [intentId]
+              properties:
+                intentId: { type: string, pattern: '^mock_intent_[a-f0-9]{40}$' }
+      responses:
+        '200':
+          description: 已幂等记录的模拟支付结果；最后一名付款人可能得到 DELIVERED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceOrder' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /service-orders/{orderId}:
     get:
       tags: [Payments]
@@ -603,6 +644,7 @@ paths:
       tags: [Payments]
       summary: Process an authenticated WeChat payment notification
       operationId: handleWechatPaymentNotification
+      x-implementation-milestone: M5
       security: []
       x-idempotency-key-source: provider-notification
       description: >-
@@ -665,6 +707,7 @@ paths:
       tags: [Payments]
       summary: Request a refund allowed by platform policy
       operationId: requestRefund
+      x-implementation-milestone: M5
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -695,6 +738,7 @@ paths:
       tags: [Payments]
       summary: Get an owned refund request
       operationId: getRefund
+      x-implementation-milestone: M5
       parameters:
         - name: refundId
           in: path
@@ -713,6 +757,7 @@ paths:
       tags: [Payments]
       summary: Process an authenticated WeChat refund notification
       operationId: handleWechatRefundNotification
+      x-implementation-milestone: M5
       security: []
       x-idempotency-key-source: provider-notification
       description: >-
@@ -1569,25 +1614,24 @@ components:
     ServiceOrder:
       type: object
       additionalProperties: false
-      required: [id, roundId, amountFen, currency, pricingVersion, status, createdAt]
+      required: [id, groupId, roundId, amountFen, currency, status, expiresAt]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
+        groupId: { $ref: '#/components/schemas/Uuid' }
         roundId: { $ref: '#/components/schemas/Uuid' }
         amountFen: { type: integer, const: 99 }
         currency: { type: string, const: CNY }
-        pricingVersion: { type: string }
         status: { type: string, enum: [CREATED, PAYING, PAID, DELIVERED, CLOSED, REFUND_PENDING, REFUNDED, REFUND_FAILED] }
-        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
     PrepayResponse:
       type: object
       additionalProperties: false
-      required: [provider, expiresAt, parameters]
+      required: [provider, intentId, amountFen, expiresAt]
       properties:
-        provider: { type: string, enum: [MOCK, WECHAT_PAY] }
+        provider: { type: string, const: MOCK }
+        intentId: { type: string, pattern: '^mock_intent_[a-f0-9]{40}$' }
+        amountFen: { type: integer, const: 99 }
         expiresAt: { type: string, format: date-time }
-        parameters:
-          type: object
-          additionalProperties: { type: string }
     Refund:
       type: object
       additionalProperties: false
@@ -1601,11 +1645,10 @@ components:
     UnlockedContact:
       type: object
       additionalProperties: false
-      required: [userId, displayName, wechatId]
+      required: [label, wechatId]
       properties:
-        userId: { $ref: '#/components/schemas/Uuid' }
-        displayName: { type: string, maxLength: 30 }
-        wechatId: { type: string, minLength: 6, maxLength: 32 }
+        label: { type: string, maxLength: 30 }
+        wechatId: { type: string, minLength: 6, maxLength: 20 }
     CreateReportRequest:
       type: object
       additionalProperties: false

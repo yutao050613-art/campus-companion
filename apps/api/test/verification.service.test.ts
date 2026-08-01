@@ -51,6 +51,7 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     version: "test",
     logLevel: "silent",
     wechatAuthProvider: "mock",
+    paymentProvider: "mock",
     wechatMockDefaultCampusId: principal.campusId,
     wechatMockSigningSecret: "mock-secret-that-is-longer-than-thirty-two-bytes",
     accessTokenSecret: "access-secret-that-is-longer-than-thirty-two-bytes",

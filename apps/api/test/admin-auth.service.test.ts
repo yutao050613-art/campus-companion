@@ -32,6 +32,7 @@ function config(): AppConfig {
     version: "test",
     logLevel: "silent",
     wechatAuthProvider: "mock",
+    paymentProvider: "mock",
     wechatMockSigningSecret: "mock-secret-that-is-longer-than-thirty-two-bytes",
     accessTokenSecret: "access-secret-that-is-longer-than-thirty-two-bytes",
     studentNumberHmacSecret: "student-secret-that-is-longer-than-thirty-two-bytes",

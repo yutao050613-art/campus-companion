@@ -20,7 +20,7 @@ describe("API configuration", () => {
   it("forbids mock identity and missing secrets in production-like environments", () => {
     expect(() => loadConfig({ NODE_ENV: "production" })).toThrow(/mock WeChat/u);
     expect(() => loadConfig({ NODE_ENV: "staging", WECHAT_AUTH_PROVIDER: "wechat" })).toThrow(
-      /AUTH_ACCESS_TOKEN_SECRET/u,
+      /mock payment/u,
     );
   });
 
@@ -39,9 +39,13 @@ describe("API configuration", () => {
       PUBLIC_API_BASE_URL: "https://api.example.invalid",
       ADMIN_TRUSTED_ORIGINS: "http://admin.example.invalid",
     };
-    expect(() => loadConfig(production)).toThrow(/ADMIN_TRUSTED_ORIGINS/u);
+    expect(() => loadConfig(production)).toThrow(/mock payment/u);
     expect(() =>
-      loadConfig({ ...production, ADMIN_TRUSTED_ORIGINS: "https://admin.example.invalid" }),
-    ).not.toThrow();
+      loadConfig({
+        ...production,
+        PAYMENT_PROVIDER: "wechat",
+        ADMIN_TRUSTED_ORIGINS: "https://admin.example.invalid",
+      }),
+    ).toThrow(/WeChat Pay/u);
   });
 });

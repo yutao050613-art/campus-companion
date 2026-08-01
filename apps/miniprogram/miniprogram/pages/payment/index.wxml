@@ -1,0 +1,6 @@
+<view class="page">
+  <view class="card"><view class="title">每账号 0.99 元</view><text class="muted">信息服务费只用于确认同路成员并在所有成员付款后公开微信号，不是车费。</text></view>
+  <view class="card"><text class="label">我的微信号</text><input value="{{wechatId}}" bindinput="onWechatIdInput" placeholder="仅在全部条件满足后向本组成员公开" /><button loading="{{busy}}" disabled="{{busy}}" bindtap="preparePayment">保存并创建订单</button></view>
+  <view class="card" wx:if="{{prepay}}"><text class="muted">到期：{{prepay.expiresAt}}</text><button loading="{{busy}}" disabled="{{busy}}" bindtap="settleMock">完成模拟支付（仅开发/测试）</button></view>
+  <view class="card warning"><text>{{message}}</text></view>
+</view>

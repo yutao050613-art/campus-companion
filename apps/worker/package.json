@@ -15,6 +15,7 @@
     "@campus/database": "workspace:*",
     "@campus/domain": "workspace:*",
     "@campus/observability": "workspace:*",
+    "@campus/payments": "workspace:*",
     "@campus/verification": "workspace:*",
     "bullmq": "5.79.3",
     "zod": "4.4.3"

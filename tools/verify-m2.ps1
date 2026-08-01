@@ -77,7 +77,7 @@ Assert-True ($entryApproval -match 'Cedric') 'M2 entry records accountable appro
 
 $migrationsRoot = Join-Path $root 'packages/database/prisma/migrations'
 $migrationDirectories = Get-ChildItem -LiteralPath $migrationsRoot -Directory | Sort-Object Name
-Assert-True ($migrationDirectories.Count -eq 2) 'M2 history contains the immutable M1 migration plus one additive M2 migration'
+Assert-True ($migrationDirectories.Count -ge 2) 'M2 history retains the immutable M1 and additive M2 migrations'
 $m1Migration = Join-Path $migrationsRoot '20260715000000_m1_final_state_candidate/migration.sql'
 $m1Digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $m1Migration).Hash.ToLowerInvariant()
 Assert-True ($m1Digest -eq '6d893aa089650d72b717546960679aad1f3f61abe8b32ba07ed2a623ad605902') 'released M1 migration raw bytes remain immutable'
@@ -161,7 +161,7 @@ Assert-True ($ci -match '\.m2-evidence/sha256sums\.txt') 'CI produces a raw M2 e
 Assert-True ($ci -match 'm2-verification-') 'CI publishes a milestone-scoped M2 evidence artifact'
 
 $rootPackage = Read-Utf8 'package.json' | ConvertFrom-Json
-Assert-True ($rootPackage.scripts.check -match 'verify:m1 && pnpm verify:m2') 'full gate preserves M1 verification and adds M2 verification'
+Assert-True ($rootPackage.scripts.check -match 'verify:m1' -and $rootPackage.scripts.check -match 'verify:m2') 'full gate preserves M1 and M2 verification'
 Assert-True ($rootPackage.scripts.'admin:bootstrap' -match 'bootstrap-admin\.mjs') 'repository exposes the one-time administrator bootstrap command'
 
 $baselinePath = Join-Path $root 'docs/verification/m2-baseline.sha256'

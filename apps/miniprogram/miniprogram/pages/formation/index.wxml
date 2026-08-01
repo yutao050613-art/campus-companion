@@ -8,5 +8,5 @@
     <button class="decline" loading="{{busy}}" disabled="{{busy}}" bindtap="decline">拒绝并退出本轮</button>
   </view>
   <view class="card"><text class="muted">{{message}}</text></view>
-  <view class="card warning"><text>M3 不收取 0.99 元信息费，也不会返回联系方式；支付与解锁只在 M4 经独立验证后开放。</text></view>
+  <view class="card warning"><text>平台仅收取每账号 0.99 元信息服务费；全部成员付款且已同意后才会公开微信号。平台不提供司机、车辆、叫车、车费或运输服务。</text></view>
 </view>

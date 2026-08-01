@@ -146,6 +146,46 @@ describe("IdempotencyService", () => {
     expect(action).toHaveBeenCalledTimes(2);
   });
 
+  it("retries PostgreSQL deadlocks that Prisma surfaces as unknown request errors", async () => {
+    const transaction = {
+      idempotencyRecord: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({}),
+        delete: vi.fn(),
+      },
+    };
+    const deadlock = new Prisma.PrismaClientUnknownRequestError(
+      "PostgresError code: 40P01 deadlock detected",
+      {
+        clientVersion: "6.19.2",
+      },
+    );
+    const runTransaction = vi
+      .fn()
+      .mockRejectedValueOnce(deadlock)
+      .mockImplementationOnce(async (action: (value: unknown) => Promise<unknown>) =>
+        action(transaction),
+      );
+    const service = new IdempotencyService(
+      prismaWith(transaction, {
+        $transaction: runTransaction,
+        idempotencyRecord: { findUnique: vi.fn().mockResolvedValue(null) },
+      }),
+      protector,
+    );
+    await expect(
+      service.execute(
+        "createThing",
+        key,
+        actor,
+        { value: 1 },
+        vi.fn().mockResolvedValue({ status: 200, body: {} }),
+        now,
+      ),
+    ).resolves.toMatchObject({ status: 200, replayed: false });
+    expect(runTransaction).toHaveBeenCalledTimes(2);
+  });
+
   it("stops after three serializable transaction conflicts", async () => {
     const serializationConflict = new Prisma.PrismaClientKnownRequestError(
       "serialization conflict",

@@ -1,5 +1,12 @@
 import { defineConfig } from "vitest/config";
 
+const coverageThresholds = {
+  statements: 80,
+  branches: 80,
+  functions: 80,
+  lines: 80,
+};
+
 export default defineConfig({
   test: {
     // Native suites deliberately share one PostgreSQL database. Their own tests retain
@@ -11,12 +18,10 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: ["src/main.ts"],
       reporter: ["text", "json-summary"],
-      thresholds: {
-        statements: 80,
-        branches: 80,
-        functions: 80,
-        lines: 80,
-      },
+      // The root runner first executes non-native packages in parallel, then
+      // runs this API suite with PostgreSQL serially.  Enforcement belongs to
+      // the latter run, where the integration coverage is actually present.
+      thresholds: process.env["COVERAGE_ENFORCEMENT"] === "false" ? undefined : coverageThresholds,
     },
   },
 });

@@ -21,6 +21,8 @@ import { GroupingService } from "./grouping/grouping.service";
 import { HealthController } from "./health.controller";
 import { IdempotencyService } from "./m2/idempotency.service";
 import { dataProtectorProvider, verificationObjectStoreProvider } from "./m2/providers";
+import { PaymentsController } from "./payments/payments.controller";
+import { PaymentsService } from "./payments/payments.service";
 import {
   MockVerificationUploadController,
   VerificationController,
@@ -42,6 +44,7 @@ import { VerificationService } from "./verification/verification.service";
     DemandController,
     GroupController,
     FormationController,
+    PaymentsController,
   ],
   providers: [
     {
@@ -57,6 +60,7 @@ import { VerificationService } from "./verification/verification.service";
     CatalogService,
     AdminCatalogService,
     GroupingService,
+    PaymentsService,
     dataProtectorProvider,
     verificationObjectStoreProvider,
   ],
