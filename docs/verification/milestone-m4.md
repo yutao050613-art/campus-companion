@@ -34,6 +34,12 @@
 | Dependency audit | Pass | `pnpm audit --audit-level high --json` reported 0 vulnerabilities across 275 dependencies |
 | GitHub CI | Pending pull request | The required remote quality gate must pass after the draft PR is opened; this is not a substitute for the recorded local evidence |
 
+## CI portability remediation
+
+The first remote execution of PR #9 passed the dedicated `verify-m4` workflow, but the inherited `verify` and `verify-m3` workflows failed before their native suites. The root cause was a test-runner helper that unconditionally executed Windows `cmd.exe`; GitHub-hosted Linux runners correctly reported `spawnSync cmd.exe ENOENT`.
+
+The remediation keeps the Windows `.cmd` shim path, executes `pnpm` directly on POSIX, preserves the argument allowlist and `shell: false`, and adds unit coverage for Windows, Linux/macOS, non-zero child status, and shell-control input rejection. On 2026-08-01, `pnpm db:status` reported three applied migrations for the fresh `campus_companion_m4_fresh` schema, `pnpm check` completed successfully in 198.4 seconds, and the strengthened M4 verifier reported 242 passed with 0 failures. A new remote execution is required after this remediation is committed and pushed.
+
 ## Known limitations and non-goals
 
 - No WeChat Pay API v3 credentials, signing, callback verification, reconciliation, or production payment configuration exists in M4.

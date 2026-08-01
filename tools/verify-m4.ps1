@@ -40,6 +40,7 @@ $requiredFiles = @(
   'apps/worker/vitest.config.ts',
   'apps/miniprogram/miniprogram/pages/payment/index.ts',
   'apps/miniprogram/miniprogram/pages/contacts/index.ts',
+  'tools/pnpm-child.test.mjs',
   'tools/run-non-native-tests.mjs',
   '.github/workflows/m4-quality.yml'
 )
@@ -155,6 +156,11 @@ foreach ($guard in @('name: m4-quality-gates', 'native-m4.e2e.test.ts', 'native-
 
 $rootPackage = Read-Utf8 'package.json' | ConvertFrom-Json
 Assert-True ($rootPackage.scripts.check -match 'verify:m3 && pnpm verify:m4') 'full quality gate preserves M3 and adds M4 verification'
+Assert-True ($rootPackage.scripts.test -match 'pnpm test:tools' -and $rootPackage.scripts.'test:coverage' -match 'pnpm test:tools') 'test gates include the portable pnpm runner test'
+$pnpmChild = Read-Utf8 'tools/pnpm-child.mjs'
+Assert-True ($pnpmChild -match 'platform === "win32"' -and $pnpmChild -match 'command: "pnpm"') 'pnpm runner selects a safe Windows or POSIX executable'
+$pnpmChildTest = Read-Utf8 'tools/pnpm-child.test.mjs'
+Assert-True ($pnpmChildTest -match '"win32"' -and $pnpmChildTest -match '"linux"' -and $pnpmChildTest -match 'shell: false') 'pnpm runner has Windows and POSIX regression coverage'
 Assert-True ($rootPackage.scripts.'test:coverage' -match 'run-non-native-tests') 'coverage gate isolates native database suites'
 $nonNativeRunner = Read-Utf8 'tools/run-non-native-tests.mjs'
 Assert-True ($nonNativeRunner -match 'NATIVE_POSTGRES_TESTS: "false"') 'non-native runner disables parallel PostgreSQL suites'
