@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+export * from "./wechat-pay-v3";
+
 export type PaymentEnvironment = "development" | "test" | "staging" | "production";
 
 export interface PrepayRequest {
