@@ -29,10 +29,14 @@ export const expectedDatabaseObjectInventory = {
   functions: [
     "consume_verification_asset_access_grant",
     "enforce_group_seat_limit",
+    "enforce_m4_contact_unlock_guard",
+    "enforce_m4_service_order_guard",
     "prevent_verification_asset_grant_reuse",
   ],
   triggers: [
+    "ContactUnlock_m4_delivery_guard",
     "GroupMember_group_seat_limit_trigger",
+    "ServiceOrder_m4_paying_guard",
     "VerificationAssetAccessGrant_usedAt_immutable_trigger",
   ],
 } as const;
@@ -75,6 +79,7 @@ export const databaseObjectInventorySql = {
        AND (
          function_object.proname LIKE '%group_seat%'
          OR function_object.proname LIKE '%verification_asset%'
+         OR function_object.proname LIKE '%m4_%'
        )
      ORDER BY function_object.proname
   `,
@@ -88,6 +93,7 @@ export const databaseObjectInventorySql = {
        AND (
          trigger_object.tgname LIKE 'GroupMember_%'
          OR trigger_object.tgname LIKE 'VerificationAssetAccessGrant_%'
+         OR trigger_object.tgname LIKE '%_m4_%'
        )
      ORDER BY trigger_object.tgname
   `,

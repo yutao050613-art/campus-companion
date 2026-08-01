@@ -1,0 +1,4 @@
+.title { font-size: 42rpx; font-weight: 800; }
+.label { display: block; color: #69776f; }
+.wechat { display: block; margin-top: 12rpx; font-size: 36rpx; font-weight: 700; }
+.warning { border-color: #ead69d; background: #fff9e8; line-height: 1.7; }

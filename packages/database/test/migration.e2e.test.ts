@@ -55,7 +55,7 @@ describe("PostgreSQL migration chain", () => {
   });
 
   it("applies to an empty PostgreSQL engine and enforces core guards", async () => {
-    expect(migrations).toHaveLength(2);
+    expect(migrations).toHaveLength(3);
     await database.exec(`
       INSERT INTO "Campus" ("id", "name", "updatedAt") VALUES
         ('${ids.campus}', 'Campus A', NOW()),
@@ -133,6 +133,58 @@ describe("PostgreSQL migration chain", () => {
         );
       `),
     ).rejects.toThrow(/price|check|23514/i);
+
+    await database.exec(`
+      UPDATE "CompanionGroup" SET "state" = 'PAYING' WHERE "id" = '${ids.group}';
+      UPDATE "GroupMember" SET "status" = 'PAYMENT_PENDING' WHERE "id" = '${ids.memberA}';
+      UPDATE "FormationRound"
+         SET "state" = 'PAYING', "payBy" = NOW() + INTERVAL '5 minutes'
+       WHERE "id" = '${ids.round}';
+    `);
+    await expect(
+      database.exec(`
+        INSERT INTO "ServiceOrder" (
+          "id", "campusId", "roundId", "userId", "merchantOrderNo", "amountFen",
+          "currency", "pricingVersion", "expiresAt", "updatedAt"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000902', '${ids.campus}', '${ids.round}', '${ids.userA}',
+          'm4-wrong-deadline', 99, 'CNY', 'm4-test', NOW() + INTERVAL '4 minutes', NOW()
+        );
+      `),
+    ).rejects.toThrow(/M4 service order|23514/i);
+    await database.exec(`
+      INSERT INTO "ServiceOrder" (
+        "id", "campusId", "roundId", "userId", "merchantOrderNo", "amountFen",
+        "currency", "pricingVersion", "expiresAt", "updatedAt"
+      ) SELECT
+        '00000000-0000-0000-0000-000000000902', '${ids.campus}', '${ids.round}', '${ids.userA}',
+        'm4-correct-deadline', 99, 'CNY', 'm4-test', "payBy", NOW()
+      FROM "FormationRound" WHERE "id" = '${ids.round}';
+      UPDATE "TravelDemand" SET "seatCount" = 1 WHERE "id" = '${ids.demandB}';
+      INSERT INTO "GroupMember" (
+        "id", "campusId", "groupId", "userId", "demandId", "seatCount", "status", "updatedAt"
+      ) VALUES (
+        '${ids.memberB}', '${ids.campus}', '${ids.group}', '${ids.userB}', '${ids.demandB}', 1,
+        'CONTACT_UNLOCKED', NOW()
+      );
+      UPDATE "GroupMember" SET "status" = 'CONTACT_UNLOCKED' WHERE "id" = '${ids.memberA}';
+      UPDATE "CompanionGroup" SET "state" = 'CONTACTS_UNLOCKED' WHERE "id" = '${ids.group}';
+      UPDATE "FormationRound" SET "state" = 'DELIVERED' WHERE "id" = '${ids.round}';
+    `);
+    await expect(
+      database.exec(`
+        INSERT INTO "ContactUnlock" ("id", "campusId", "roundId", "viewerId", "subjectId") VALUES (
+          '00000000-0000-0000-0000-000000000a04', '${ids.campus}', '${ids.round}',
+          '${ids.userA}', '${ids.otherCampusUser}'
+        );
+      `),
+    ).rejects.toThrow(/M4 contact unlock|23514/i);
+    await database.exec(`
+      INSERT INTO "ContactUnlock" ("id", "campusId", "roundId", "viewerId", "subjectId") VALUES (
+        '00000000-0000-0000-0000-000000000a04', '${ids.campus}', '${ids.round}',
+        '${ids.userA}', '${ids.userB}'
+      );
+    `);
 
     await database.exec(`
       UPDATE "CompanionGroup" SET "state" = 'REFUNDING' WHERE "id" = '${ids.group}';

@@ -190,7 +190,8 @@ $m2Migration = Join-Path $root 'packages/database/prisma/migrations/202607310000
 Assert-True ((Get-FileHash -Algorithm SHA256 -LiteralPath $m1Migration).Hash.ToLowerInvariant() -eq '6d893aa089650d72b717546960679aad1f3f61abe8b32ba07ed2a623ad605902') 'released M1 migration remains immutable'
 Assert-True ((Get-FileHash -Algorithm SHA256 -LiteralPath $m2Migration).Hash.ToLowerInvariant() -eq 'fb8e9e49d97db759d8eb441ff2f89e6dd54c13e3a4bb35eab350c4f807e5a681') 'released M2 migration remains immutable'
 $migrationDirectories = Get-ChildItem -LiteralPath (Split-Path $m1Migration -Parent | Split-Path -Parent) -Directory
-Assert-True ($migrationDirectories.Count -eq 2) 'M3 requires no database migration beyond the accepted M1 and M2 chain'
+Assert-True ($migrationDirectories.Count -ge 2) 'M3 retains the accepted immutable M1 and M2 migration chain'
+Assert-True ($migrationDirectories.Name -contains '20260731000000_m2_sensitive_info_policy') 'M3 retains the released M2 migration directory'
 
 $baselinePath = Join-Path $root 'docs/verification/m3-baseline.sha256'
 if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {

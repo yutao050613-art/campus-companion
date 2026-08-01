@@ -10,6 +10,7 @@ const WorkerEnvironmentSchema = z.object({
       message: "REDIS_URL must use redis:// or rediss://",
     }),
   DATABASE_URL: z.string().min(1).optional(),
+  PAYMENT_PROVIDER: z.enum(["mock", "wechat"]).default("mock"),
   LOCAL_OBJECT_UPLOAD_SECRET: z.string().default(""),
   LOCAL_OBJECT_STORE_ROOT: z.string().min(1).optional(),
   PUBLIC_API_BASE_URL: z.string().url().default("http://127.0.0.1:3000"),
@@ -24,6 +25,7 @@ export interface WorkerConfig {
   readonly nodeEnv: "development" | "test" | "staging" | "production";
   readonly redisUrl: string;
   readonly databaseUrl?: string;
+  readonly paymentProvider: "mock" | "wechat";
   readonly localObjectUploadSecret: string;
   readonly localObjectStoreRoot: string;
   readonly publicApiBaseUrl: string;
@@ -40,10 +42,20 @@ export function loadWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig {
   ) {
     throw new Error("worker database and object-store credentials are required");
   }
+  if (
+    (parsed.NODE_ENV === "staging" || parsed.NODE_ENV === "production") &&
+    parsed.PAYMENT_PROVIDER === "mock"
+  ) {
+    throw new Error("mock payment is forbidden outside development and test");
+  }
+  if (parsed.PAYMENT_PROVIDER !== "mock") {
+    throw new Error("WeChat Pay worker is not configured until M5");
+  }
   return {
     nodeEnv: parsed.NODE_ENV,
     redisUrl: parsed.REDIS_URL,
     ...(parsed.DATABASE_URL === undefined ? {} : { databaseUrl: parsed.DATABASE_URL }),
+    paymentProvider: parsed.PAYMENT_PROVIDER,
     localObjectUploadSecret: parsed.LOCAL_OBJECT_UPLOAD_SECRET,
     localObjectStoreRoot:
       parsed.LOCAL_OBJECT_STORE_ROOT ??

@@ -1,0 +1,144 @@
+name: m4-quality-gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m4-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-m4:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16.8-alpine
+        env:
+          POSTGRES_DB: campus_companion
+          POSTGRES_USER: campus
+          POSTGRES_PASSWORD: ci-only-password
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U campus -d campus_companion"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4.2-alpine
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://campus:ci-only-password@127.0.0.1:5432/campus_companion
+      REDIS_URL: redis://127.0.0.1:6379/0
+      NATIVE_POSTGRES_TESTS: "true"
+      NATIVE_REDIS_TESTS: "true"
+      REDOCLY_TELEMETRY: "off"
+      REDOCLY_SUPPRESS_UPDATE_NOTICE: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: 11.7.0
+          run_install: false
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.22.0
+          cache: pnpm
+      - name: Record run metadata
+        run: |
+          set -euo pipefail
+          mkdir -p .m4-evidence
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            node --version
+            pnpm --version
+          } | tee .m4-evidence/00-environment.log
+      - name: Install exact dependencies
+        id: install
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile 2>&1 | tee .m4-evidence/01-install.log
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml 2>&1 | tee .m4-evidence/02-lockfile-integrity.log
+      - name: Apply migration chain on empty PostgreSQL
+        id: migrate_first
+        run: pnpm db:migrate 2>&1 | tee .m4-evidence/03-migrate-first.log
+      - name: Prove migration deployment is idempotent
+        id: migrate_second
+        run: pnpm db:migrate 2>&1 | tee .m4-evidence/04-migrate-second.log
+      - name: Verify migration status
+        id: migrate_status
+        run: pnpm db:status 2>&1 | tee .m4-evidence/05-migrate-status.log
+      - name: Run full M4 quality gate
+        id: full_check
+        run: pnpm check 2>&1 | tee .m4-evidence/06-full-check.log
+      - name: Prove M4 PostgreSQL API tests were not skipped
+        id: native_m4_api
+        run: |
+          set -euo pipefail
+          pnpm --filter @campus/api exec vitest run test/native-m4.e2e.test.ts --reporter=json --outputFile=../../.m4-evidence/07-native-m4-api.json
+          node tools/assert-native-vitest-report.mjs .m4-evidence/07-native-m4-api.json M4-API 4 | tee .m4-evidence/08-native-m4-api-assertion.log
+      - name: Prove M4 payment timeout and refund tests were not skipped
+        id: native_m4_worker
+        run: |
+          set -euo pipefail
+          pnpm --filter @campus/worker exec vitest run test/native-m4-payment-refund.e2e.test.ts --reporter=json --outputFile=../../.m4-evidence/09-native-m4-worker.json
+          node tools/assert-native-vitest-report.mjs .m4-evidence/09-native-m4-worker.json M4-WORKER 1 | tee .m4-evidence/10-native-m4-worker-assertion.log
+      - name: Prove database inventory is not skipped
+        id: native_postgres
+        run: |
+          set -euo pipefail
+          pnpm --filter @campus/database exec vitest run test/native-postgres.e2e.test.ts --reporter=json --outputFile=../../.m4-evidence/11-native-postgres.json
+          node tools/assert-native-vitest-report.mjs .m4-evidence/11-native-postgres.json PostgreSQL 4 | tee .m4-evidence/12-native-postgres-assertion.log
+      - name: Full dependency audit
+        id: dependency_audit
+        run: pnpm audit --audit-level high --json 2>&1 | tee .m4-evidence/13-dependency-audit.json
+      - name: Generate raw evidence manifest
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          MIGRATE_FIRST_OUTCOME: ${{ steps.migrate_first.outcome }}
+          MIGRATE_SECOND_OUTCOME: ${{ steps.migrate_second.outcome }}
+          MIGRATE_STATUS_OUTCOME: ${{ steps.migrate_status.outcome }}
+          FULL_CHECK_OUTCOME: ${{ steps.full_check.outcome }}
+          NATIVE_M4_API_OUTCOME: ${{ steps.native_m4_api.outcome }}
+          NATIVE_M4_WORKER_OUTCOME: ${{ steps.native_m4_worker.outcome }}
+          NATIVE_POSTGRES_OUTCOME: ${{ steps.native_postgres.outcome }}
+          DEPENDENCY_AUDIT_OUTCOME: ${{ steps.dependency_audit.outcome }}
+        run: |
+          set -euo pipefail
+          {
+            echo "install=${INSTALL_OUTCOME}"
+            echo "migrate_first=${MIGRATE_FIRST_OUTCOME}"
+            echo "migrate_second=${MIGRATE_SECOND_OUTCOME}"
+            echo "migrate_status=${MIGRATE_STATUS_OUTCOME}"
+            echo "full_check=${FULL_CHECK_OUTCOME}"
+            echo "native_m4_api=${NATIVE_M4_API_OUTCOME}"
+            echo "native_m4_worker=${NATIVE_M4_WORKER_OUTCOME}"
+            echo "native_postgres=${NATIVE_POSTGRES_OUTCOME}"
+            echo "dependency_audit=${DEPENDENCY_AUDIT_OUTCOME}"
+          } > .m4-evidence/14-step-outcomes.txt
+          find .m4-evidence -maxdepth 1 -type f ! -name 'sha256sums.txt' -print0 | sort -z | xargs -0 sha256sum > .m4-evidence/sha256sums.txt
+      - name: Upload M4 verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: m4-verification-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: .m4-evidence/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 6

@@ -8,6 +8,7 @@ const EnvironmentSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   DATABASE_URL: z.string().min(1).optional(),
   WECHAT_AUTH_PROVIDER: z.enum(["mock", "wechat"]).default("mock"),
+  PAYMENT_PROVIDER: z.enum(["mock", "wechat"]).default("mock"),
   WECHAT_MOCK_DEFAULT_CAMPUS_ID: z.string().uuid().optional(),
   WECHAT_MOCK_SIGNING_SECRET: z.string().default(""),
   AUTH_ACCESS_TOKEN_SECRET: z.string().default(""),
@@ -27,6 +28,7 @@ export interface AppConfig {
   readonly logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
   readonly databaseUrl?: string;
   readonly wechatAuthProvider: "mock" | "wechat";
+  readonly paymentProvider: "mock" | "wechat";
   readonly wechatMockDefaultCampusId?: string;
   readonly wechatMockSigningSecret: string;
   readonly accessTokenSecret: string;
@@ -46,6 +48,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
   const productionLike = parsed.NODE_ENV === "staging" || parsed.NODE_ENV === "production";
   if (productionLike && parsed.WECHAT_AUTH_PROVIDER === "mock") {
     throw new Error("mock WeChat authentication is forbidden outside development and test");
+  }
+  if (productionLike && parsed.PAYMENT_PROVIDER === "mock") {
+    throw new Error("mock payment is forbidden outside development and test");
+  }
+  if (parsed.PAYMENT_PROVIDER !== "mock") {
+    throw new Error("WeChat Pay is not configured until M5");
   }
   if (productionLike) {
     for (const [name, value] of [
@@ -87,6 +95,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     logLevel: parsed.LOG_LEVEL,
     ...(parsed.DATABASE_URL === undefined ? {} : { databaseUrl: parsed.DATABASE_URL }),
     wechatAuthProvider: parsed.WECHAT_AUTH_PROVIDER,
+    paymentProvider: parsed.PAYMENT_PROVIDER,
     ...(parsed.WECHAT_MOCK_DEFAULT_CAMPUS_ID === undefined
       ? {}
       : { wechatMockDefaultCampusId: parsed.WECHAT_MOCK_DEFAULT_CAMPUS_ID }),

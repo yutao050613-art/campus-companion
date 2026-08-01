@@ -17,6 +17,7 @@
     "@campus/database": "workspace:*",
     "@campus/domain": "workspace:*",
     "@campus/observability": "workspace:*",
+    "@campus/payments": "workspace:*",
     "@campus/verification": "workspace:*",
     "@nestjs/common": "11.1.28",
     "@nestjs/core": "11.1.28",

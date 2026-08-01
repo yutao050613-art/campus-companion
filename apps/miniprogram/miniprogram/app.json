@@ -6,6 +6,8 @@
     "pages/profile/index",
     "pages/group/index",
     "pages/formation/index",
+    "pages/payment/index",
+    "pages/contacts/index",
     "pages/student-verification/index",
     "pages/policies/sensitive-info"
   ],

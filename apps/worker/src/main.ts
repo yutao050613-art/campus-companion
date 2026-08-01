@@ -4,6 +4,7 @@ import { LocalVerificationObjectStore } from "@campus/verification";
 import { Worker } from "bullmq";
 import { loadWorkerConfig } from "./config";
 import { PrismaFormationDeadlineRepository, runFormationDeadlineSweep } from "./formation-timeout";
+import { PrismaPaymentRefundRepository, runPaymentRefundSweep } from "./payment-refund";
 import { toRedisConnection } from "./redis-connection";
 import { processSystemJob } from "./system-processor";
 import {
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
   const prisma = createPrismaClient();
   const deletionRepository = new PrismaVerificationAssetDeletionRepository(prisma);
   const formationRepository = new PrismaFormationDeadlineRepository(prisma);
+  const paymentRefundRepository = new PrismaPaymentRefundRepository(prisma, config.nodeEnv);
   const objectStore = new LocalVerificationObjectStore({
     rootDirectory: config.localObjectStoreRoot,
     uploadHmacSecret: config.localObjectUploadSecret,
@@ -62,6 +64,24 @@ async function main(): Promise<void> {
   const formationTimer = setInterval(() => void runFormationSweep(), 15_000);
   formationTimer.unref();
   void runFormationSweep();
+  let paymentRefundSweepRunning = false;
+  const runPaymentRefund = async (): Promise<void> => {
+    if (paymentRefundSweepRunning) return;
+    paymentRefundSweepRunning = true;
+    try {
+      const result = await runPaymentRefundSweep(paymentRefundRepository);
+      if (result.roundsInvalidated + result.refundsSettled > 0) {
+        logger.info(result, "payment timeout and refund sweep completed");
+      }
+    } catch (error) {
+      logger.error({ err: error }, "payment timeout and refund sweep failed");
+    } finally {
+      paymentRefundSweepRunning = false;
+    }
+  };
+  const paymentRefundTimer = setInterval(() => void runPaymentRefund(), 15_000);
+  paymentRefundTimer.unref();
+  void runPaymentRefund();
   const worker = new Worker(
     "system",
     async (job) => {
@@ -84,6 +104,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, "worker shutting down");
     clearInterval(deletionTimer);
     clearInterval(formationTimer);
+    clearInterval(paymentRefundTimer);
     await worker.close();
     await prisma.$disconnect();
   };

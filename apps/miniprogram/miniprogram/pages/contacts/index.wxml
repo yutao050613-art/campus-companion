@@ -1,0 +1,1 @@
+<view class="page"><view class="card"><view class="title">同组微信号</view><text class="muted">{{message}}</text></view><view class="card" wx:for="{{contacts}}" wx:key="label"><text class="label">{{item.label}}</text><text selectable="true" class="wechat">{{item.wechatId}}</text></view><view class="card warning"><text>平台只提供乘客信息撮合，不提供司机、车辆、叫车、车费结算、定位或运输服务。</text></view></view>
