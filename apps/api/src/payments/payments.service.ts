@@ -9,9 +9,12 @@ import {
   PaymentProvider,
   PaymentStatus,
   Prisma,
+  ProviderEventStatus,
+  ReconciliationStatus,
   RefundReason,
   RefundStatus,
   RoundState,
+  recoverRefundedFormationRound,
   VerificationStatus,
 } from "@campus/database";
 import { MockPaymentGateway } from "@campus/payments";
@@ -27,6 +30,15 @@ const PRICE_FEN = 99;
 const PRICING_VERSION = "m4-99-fen-v1";
 const ACTIVE_MEMBER_STATES = [MemberStatus.PAYMENT_PENDING, MemberStatus.PAID] as const;
 const PAYABLE_ORDER_STATES: readonly OrderStatus[] = [OrderStatus.CREATED, OrderStatus.PAYING];
+const REFUNDABLE_ORDER_STATES: readonly OrderStatus[] = [
+  OrderStatus.PAID,
+  OrderStatus.DELIVERED,
+  OrderStatus.REFUND_PENDING,
+];
+const CALLBACK_REFUND_STATES: readonly RefundStatus[] = [
+  RefundStatus.REQUESTED,
+  RefundStatus.REFUND_PENDING,
+];
 type Transaction = Prisma.TransactionClient;
 
 export interface ServiceOrderResponse {
@@ -57,6 +69,41 @@ export interface RefundResponse {
 export interface UnlockedContactResponse {
   readonly label: string;
   readonly wechatId: string;
+}
+
+/**
+ * This is the post-verification boundary: callers may construct it only after
+ * API v3 signature verification, encrypted-resource decryption and strict
+ * provider schema validation. It contains no raw callback body or key data.
+ */
+export interface VerifiedWechatPaymentEventInput {
+  readonly eventId: string;
+  readonly eventType: "TRANSACTION.SUCCESS";
+  readonly verifierKeyId: string;
+  readonly rawDigest: string;
+  readonly merchantOrderNo: string;
+  readonly providerTransactionId: string;
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly occurredAt: Date;
+}
+
+export interface VerifiedWechatRefundEventInput {
+  readonly eventId: string;
+  readonly eventType: "REFUND.SUCCESS";
+  readonly verifierKeyId: string;
+  readonly rawDigest: string;
+  readonly merchantOrderNo: string;
+  readonly merchantRefundNo: string;
+  readonly providerRefundId: string;
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly occurredAt: Date;
+}
+
+export interface WechatProviderEventReceipt {
+  readonly providerEventId: string;
+  readonly status: "RECEIVED" | "APPLIED" | "REVIEW_REQUIRED" | "REJECTED";
 }
 
 @Injectable()
@@ -293,6 +340,402 @@ export class PaymentsService {
       { serializableAttempts: 5 },
     );
     return result.body;
+  }
+
+  /**
+   * Commits the signed external fact before any internal payment-state change.
+   * A second, separately committed apply call is required to reach PAID or
+   * contact delivery. This boundary makes replay and crash recovery explicit.
+   */
+  public async ingestVerifiedWechatPaymentEvent(
+    input: VerifiedWechatPaymentEventInput,
+  ): Promise<WechatProviderEventReceipt> {
+    assertVerifiedWechatPaymentEvent(input);
+    const existing = await this.prisma.providerEvent.findUnique({
+      where: {
+        provider_eventId: { provider: PaymentProvider.WECHAT_PAY, eventId: input.eventId },
+      },
+    });
+    if (existing !== null) {
+      if (existing.rawDigest !== input.rawDigest) {
+        await this.recordProviderEventDigestConflict(existing, input.rawDigest);
+        return { providerEventId: existing.id, status: "REVIEW_REQUIRED" };
+      }
+      return { providerEventId: existing.id, status: existing.status };
+    }
+
+    const order = await this.prisma.serviceOrder.findUnique({
+      where: { merchantOrderNo: input.merchantOrderNo },
+      select: { id: true, campusId: true, amountFen: true, currency: true },
+    });
+    const canBindOrder =
+      order !== null && order.amountFen === input.amountFen && order.currency === input.currency;
+    try {
+      const event = await this.prisma.providerEvent.create({
+        data: {
+          provider: PaymentProvider.WECHAT_PAY,
+          eventId: input.eventId,
+          eventType: input.eventType,
+          verifierKeyId: input.verifierKeyId,
+          rawDigest: input.rawDigest,
+          merchantOrderNo: input.merchantOrderNo,
+          providerTransactionId: input.providerTransactionId,
+          amountFen: input.amountFen,
+          currency: input.currency,
+          occurredAt: input.occurredAt,
+          ...(order === null ? {} : { campusId: order.campusId }),
+          ...(canBindOrder ? { orderId: order.id } : {}),
+        },
+      });
+      return { providerEventId: event.id, status: event.status };
+    } catch (error) {
+      if (!isUniqueProviderEventConflict(error)) throw error;
+      const replay = await this.prisma.providerEvent.findUnique({
+        where: {
+          provider_eventId: { provider: PaymentProvider.WECHAT_PAY, eventId: input.eventId },
+        },
+      });
+      if (replay === null) throw error;
+      if (replay.rawDigest !== input.rawDigest) {
+        await this.recordProviderEventDigestConflict(replay, input.rawDigest);
+        return { providerEventId: replay.id, status: "REVIEW_REQUIRED" };
+      }
+      return { providerEventId: replay.id, status: replay.status };
+    }
+  }
+
+  /**
+   * Applies an already-persisted payment event. It deliberately refuses to
+   * apply unbound, duplicate, late, amount-mismatched or non-PAYING events;
+   * those facts remain durable but require reconciliation.
+   */
+  public async applyVerifiedWechatPaymentEvent(
+    providerEventId: string,
+    now = new Date(),
+  ): Promise<WechatProviderEventReceipt> {
+    return runSerializableWithRetry(this.prisma, async (transaction) => {
+      const event = await transaction.providerEvent.findUnique({
+        where: { id: providerEventId },
+        include: {
+          order: {
+            include: {
+              round: { include: { group: true } },
+            },
+          },
+        },
+      });
+      if (event === null) throw resourceNotFound();
+      if (event.status !== ProviderEventStatus.RECEIVED) {
+        return { providerEventId: event.id, status: event.status };
+      }
+      if (event.merchantRefundNo !== null || event.eventType !== "TRANSACTION.SUCCESS") {
+        return markWechatEventForReview(transaction, event, "UNSUPPORTED_PROVIDER_EVENT");
+      }
+      const order = event.order;
+      if (order === null) {
+        const candidate = await transaction.serviceOrder.findUnique({
+          where: { merchantOrderNo: event.merchantOrderNo ?? "" },
+          select: { id: true, campusId: true },
+        });
+        return markWechatEventForReview(
+          transaction,
+          event,
+          candidate === null ? "UNKNOWN_MERCHANT_ORDER" : "PROVIDER_AMOUNT_MISMATCH",
+          candidate ?? undefined,
+        );
+      }
+      if (
+        event.amountFen !== order.amountFen ||
+        event.currency !== order.currency ||
+        event.providerTransactionId === null
+      ) {
+        return markWechatEventForReview(transaction, event, "PROVIDER_PAYMENT_FACT_MISMATCH", {
+          id: order.id,
+          campusId: order.campusId,
+        });
+      }
+      if (
+        order.round.state !== RoundState.PAYING ||
+        order.round.group.state !== GroupState.PAYING ||
+        order.expiresAt <= now ||
+        !PAYABLE_ORDER_STATES.includes(order.status)
+      ) {
+        return markWechatEventForReview(transaction, event, "UNEXPECTED_PAYMENT_ORDER_STATE", {
+          id: order.id,
+          campusId: order.campusId,
+        });
+      }
+      const priorSuccess = await transaction.paymentTransaction.findFirst({
+        where: {
+          campusId: order.campusId,
+          orderId: order.id,
+          provider: PaymentProvider.WECHAT_PAY,
+          status: PaymentStatus.SUCCEEDED,
+        },
+        select: { id: true },
+      });
+      if (priorSuccess !== null) {
+        return markWechatEventForReview(transaction, event, "DUPLICATE_PROVIDER_TRANSACTION", {
+          id: order.id,
+          campusId: order.campusId,
+        });
+      }
+      const membership = await transaction.groupMember.findFirst({
+        where: {
+          campusId: order.campusId,
+          groupId: order.round.groupId,
+          userId: order.userId,
+          status: MemberStatus.PAYMENT_PENDING,
+        },
+        select: { id: true },
+      });
+      if (membership === null) {
+        return markWechatEventForReview(transaction, event, "PAYMENT_MEMBER_STATE_MISMATCH", {
+          id: order.id,
+          campusId: order.campusId,
+        });
+      }
+
+      await transaction.paymentTransaction.create({
+        data: {
+          campusId: order.campusId,
+          orderId: order.id,
+          provider: PaymentProvider.WECHAT_PAY,
+          providerTransactionId: event.providerTransactionId,
+          providerEventId: event.id,
+          status: PaymentStatus.SUCCEEDED,
+          rawDigest: event.rawDigest,
+          occurredAt: event.occurredAt ?? now,
+        },
+      });
+      const paid = await transaction.serviceOrder.updateMany({
+        where: { id: order.id, status: { in: [OrderStatus.CREATED, OrderStatus.PAYING] } },
+        data: { status: OrderStatus.PAID },
+      });
+      if (paid.count !== 1) {
+        return markWechatEventForReview(transaction, event, "PAYMENT_ORDER_CONCURRENTLY_CHANGED", {
+          id: order.id,
+          campusId: order.campusId,
+        });
+      }
+      await transaction.groupMember.update({
+        where: { id: membership.id },
+        data: { status: MemberStatus.PAID },
+      });
+      await this.deliverIfComplete(transaction, order.round.id, now);
+      await transaction.providerEvent.update({
+        where: { id: event.id },
+        data: { status: ProviderEventStatus.APPLIED, appliedAt: now },
+      });
+      await transaction.outboxEvent.create({
+        data: {
+          campusId: order.campusId,
+          aggregateType: "ProviderEvent",
+          aggregateId: event.id,
+          eventType: "WechatPaymentEventApplied",
+          payload: { serviceOrderId: order.id },
+        },
+      });
+      return { providerEventId: event.id, status: "APPLIED" };
+    });
+  }
+
+  public async requestRefund(
+    principal: AuthenticatedUser,
+    orderId: string,
+    reason: RefundReason,
+    idempotencyKey: string,
+    now = new Date(),
+  ): Promise<RefundResponse> {
+    const result = await this.idempotency.execute(
+      "requestRefund",
+      idempotencyKey,
+      principal,
+      { orderId, reason },
+      async (transaction) => {
+        const order = await transaction.serviceOrder.findFirst({
+          where: { id: orderId, campusId: principal.campusId, userId: principal.userId },
+          include: {
+            round: true,
+            transactions: {
+              where: { status: PaymentStatus.SUCCEEDED },
+              select: { id: true },
+            },
+          },
+        });
+        if (order === null) throw resourceNotFound();
+        if (!REFUNDABLE_ORDER_STATES.includes(order.status)) {
+          throw new ApplicationError("REFUND_NOT_ELIGIBLE", "order is not refundable", 409);
+        }
+        const eligibleForAutomaticRequest =
+          (reason === RefundReason.PLATFORM_NOT_DELIVERED &&
+            order.status === OrderStatus.PAID &&
+            order.round.state !== RoundState.DELIVERED) ||
+          (reason === RefundReason.DUPLICATE_CHARGE && order.transactions.length > 1);
+        const refund = await transaction.refund.upsert({
+          where: { orderId_reason: { orderId: order.id, reason } },
+          create: {
+            campusId: order.campusId,
+            orderId: order.id,
+            amountFen: PRICE_FEN,
+            reason,
+            status: eligibleForAutomaticRequest
+              ? RefundStatus.REQUESTED
+              : RefundStatus.REVIEW_REQUIRED,
+          },
+          update: {},
+        });
+        if (eligibleForAutomaticRequest) {
+          await transaction.serviceOrder.updateMany({
+            where: { id: order.id, status: OrderStatus.PAID },
+            data: { status: OrderStatus.REFUND_PENDING },
+          });
+        }
+        await transaction.outboxEvent.create({
+          data: {
+            campusId: order.campusId,
+            aggregateType: "Refund",
+            aggregateId: refund.id,
+            eventType: "RefundRequestedByUser",
+            payload: { reason, automatic: eligibleForAutomaticRequest },
+            availableAt: now,
+          },
+        });
+        return { status: 202, body: refundResponse(refund) };
+      },
+      now,
+      { serializableAttempts: 5 },
+    );
+    return result.body;
+  }
+
+  public async getRefund(principal: AuthenticatedUser, refundId: string): Promise<RefundResponse> {
+    const refund = await this.prisma.refund.findFirst({
+      where: { id: refundId, campusId: principal.campusId, order: { userId: principal.userId } },
+    });
+    if (refund === null) throw resourceNotFound();
+    return refundResponse(refund);
+  }
+
+  public async ingestVerifiedWechatRefundEvent(
+    input: VerifiedWechatRefundEventInput,
+  ): Promise<WechatProviderEventReceipt> {
+    assertVerifiedWechatRefundEvent(input);
+    const existing = await this.prisma.providerEvent.findUnique({
+      where: {
+        provider_eventId: { provider: PaymentProvider.WECHAT_PAY, eventId: input.eventId },
+      },
+    });
+    if (existing !== null) {
+      if (existing.rawDigest !== input.rawDigest) {
+        await this.recordProviderEventDigestConflict(existing, input.rawDigest);
+        return { providerEventId: existing.id, status: "REVIEW_REQUIRED" };
+      }
+      return { providerEventId: existing.id, status: existing.status };
+    }
+
+    const refund = await this.prisma.refund.findUnique({
+      where: { merchantRefundNo: input.merchantRefundNo },
+      include: {
+        order: { select: { id: true, campusId: true, merchantOrderNo: true, amountFen: true } },
+      },
+    });
+    const canBindRefund =
+      refund !== null &&
+      refund.order.merchantOrderNo === input.merchantOrderNo &&
+      refund.amountFen === input.amountFen;
+    try {
+      const event = await this.prisma.providerEvent.create({
+        data: {
+          provider: PaymentProvider.WECHAT_PAY,
+          eventId: input.eventId,
+          eventType: input.eventType,
+          verifierKeyId: input.verifierKeyId,
+          rawDigest: input.rawDigest,
+          merchantOrderNo: input.merchantOrderNo,
+          merchantRefundNo: input.merchantRefundNo,
+          providerRefundId: input.providerRefundId,
+          amountFen: input.amountFen,
+          currency: input.currency,
+          occurredAt: input.occurredAt,
+          ...(refund === null ? {} : { campusId: refund.campusId }),
+          ...(canBindRefund ? { orderId: refund.orderId, refundId: refund.id } : {}),
+        },
+      });
+      return { providerEventId: event.id, status: event.status };
+    } catch (error) {
+      if (!isUniqueProviderEventConflict(error)) throw error;
+      const replay = await this.prisma.providerEvent.findUnique({
+        where: {
+          provider_eventId: { provider: PaymentProvider.WECHAT_PAY, eventId: input.eventId },
+        },
+      });
+      if (replay === null) throw error;
+      if (replay.rawDigest !== input.rawDigest) {
+        await this.recordProviderEventDigestConflict(replay, input.rawDigest);
+        return { providerEventId: replay.id, status: "REVIEW_REQUIRED" };
+      }
+      return { providerEventId: replay.id, status: replay.status };
+    }
+  }
+
+  public async applyVerifiedWechatRefundEvent(
+    providerEventId: string,
+    now = new Date(),
+  ): Promise<WechatProviderEventReceipt> {
+    return runSerializableWithRetry(this.prisma, async (transaction) => {
+      const event = await transaction.providerEvent.findUnique({
+        where: { id: providerEventId },
+        include: { refund: { include: { order: { include: { round: true } } } } },
+      });
+      if (event === null) throw resourceNotFound();
+      if (event.status !== ProviderEventStatus.RECEIVED) {
+        return { providerEventId: event.id, status: event.status };
+      }
+      if (event.eventType !== "REFUND.SUCCESS" || event.refund === null || event.orderId === null) {
+        return markWechatEventForReview(transaction, event, "UNKNOWN_OR_UNSUPPORTED_REFUND");
+      }
+      const refund = event.refund;
+      if (
+        event.amountFen !== refund.amountFen ||
+        event.currency !== "CNY" ||
+        event.providerRefundId === null ||
+        !CALLBACK_REFUND_STATES.includes(refund.status)
+      ) {
+        return markWechatEventForReview(transaction, event, "REFUND_FACT_OR_STATE_MISMATCH", {
+          id: refund.orderId,
+          campusId: refund.campusId,
+        });
+      }
+      await transaction.refund.update({
+        where: { id: refund.id },
+        data: {
+          providerEventId: event.id,
+          providerRefundId: event.providerRefundId,
+          status: RefundStatus.REFUNDED,
+          completedAt: event.occurredAt ?? now,
+        },
+      });
+      await transaction.serviceOrder.updateMany({
+        where: { id: refund.orderId, status: OrderStatus.REFUND_PENDING },
+        data: { status: OrderStatus.REFUNDED },
+      });
+      await recoverRefundedFormationRound(transaction, refund.order.round.id, now);
+      await transaction.providerEvent.update({
+        where: { id: event.id },
+        data: { status: ProviderEventStatus.APPLIED, appliedAt: now },
+      });
+      await transaction.outboxEvent.create({
+        data: {
+          campusId: refund.campusId,
+          aggregateType: "Refund",
+          aggregateId: refund.id,
+          eventType: "WechatRefundEventApplied",
+          payload: { serviceOrderId: refund.orderId },
+        },
+      });
+      return { providerEventId: event.id, status: "APPLIED" };
+    });
   }
 
   public async revokeContactConsent(
@@ -649,6 +1092,42 @@ export class PaymentsService {
       },
     });
   }
+
+  private async recordProviderEventDigestConflict(
+    event: {
+      readonly id: string;
+      readonly campusId: string | null;
+      readonly orderId: string | null;
+      readonly refundId: string | null;
+      readonly rawDigest: string;
+    },
+    observedDigest: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (transaction) => {
+      // A conflicting replay must close the normal settlement path before the
+      // exception is visible to an operator.  Do not try to rewrite a terminal
+      // fact: an already-applied payment remains historically true, but the
+      // reconciliation record still makes the conflict durable for review.
+      await transaction.providerEvent.updateMany({
+        where: { id: event.id, status: ProviderEventStatus.RECEIVED },
+        data: { status: ProviderEventStatus.REVIEW_REQUIRED },
+      });
+      await transaction.reconciliationException.upsert({
+        where: { providerEventId: event.id },
+        create: {
+          campusId: event.campusId,
+          providerEventId: event.id,
+          orderId: event.orderId,
+          refundId: event.refundId,
+          code: "PROVIDER_EVENT_DIGEST_CONFLICT",
+          expectedDigest: event.rawDigest,
+          observedDigest,
+          status: ReconciliationStatus.OPEN,
+        },
+        update: {},
+      });
+    });
+  }
 }
 
 async function requireEligibleUser(
@@ -679,6 +1158,101 @@ function normalizeWechatId(value: string): string {
     });
   }
   return normalized;
+}
+
+function assertVerifiedWechatPaymentEvent(input: VerifiedWechatPaymentEventInput): void {
+  const isToken = (value: string, minimum: number, maximum: number): boolean =>
+    value.length >= minimum && value.length <= maximum && /^[A-Za-z0-9_-]+$/u.test(value);
+  if (
+    !isToken(input.eventId, 1, 128) ||
+    input.eventType !== "TRANSACTION.SUCCESS" ||
+    !isToken(input.verifierKeyId, 8, 128) ||
+    !/^[a-f0-9]{64}$/u.test(input.rawDigest) ||
+    !isToken(input.merchantOrderNo, 8, 64) ||
+    !isToken(input.providerTransactionId, 8, 128) ||
+    !Number.isSafeInteger(input.amountFen) ||
+    input.amountFen < 1 ||
+    input.amountFen > 100_000_000 ||
+    input.currency !== "CNY" ||
+    !Number.isFinite(input.occurredAt.getTime())
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "verified WeChat payment event is invalid", 400);
+  }
+}
+
+function assertVerifiedWechatRefundEvent(input: VerifiedWechatRefundEventInput): void {
+  const isToken = (value: string, minimum: number, maximum: number): boolean =>
+    value.length >= minimum && value.length <= maximum && /^[A-Za-z0-9_-]+$/u.test(value);
+  if (
+    !isToken(input.eventId, 1, 128) ||
+    input.eventType !== "REFUND.SUCCESS" ||
+    !isToken(input.verifierKeyId, 8, 128) ||
+    !/^[a-f0-9]{64}$/u.test(input.rawDigest) ||
+    !isToken(input.merchantOrderNo, 8, 64) ||
+    !isToken(input.merchantRefundNo, 8, 64) ||
+    !isToken(input.providerRefundId, 8, 128) ||
+    !Number.isSafeInteger(input.amountFen) ||
+    input.amountFen < 1 ||
+    input.amountFen > 100_000_000 ||
+    input.currency !== "CNY" ||
+    !Number.isFinite(input.occurredAt.getTime())
+  ) {
+    throw new ApplicationError("VALIDATION_ERROR", "verified WeChat refund event is invalid", 400);
+  }
+}
+
+async function markWechatEventForReview(
+  transaction: Transaction,
+  event: {
+    readonly id: string;
+    readonly campusId: string | null;
+    readonly orderId: string | null;
+    readonly refundId: string | null;
+    readonly rawDigest: string;
+  },
+  code: string,
+  relatedOrder?: { readonly id: string; readonly campusId: string },
+): Promise<WechatProviderEventReceipt> {
+  await transaction.providerEvent.update({
+    where: { id: event.id },
+    data: { status: ProviderEventStatus.REVIEW_REQUIRED },
+  });
+  await transaction.reconciliationException.upsert({
+    where: { providerEventId: event.id },
+    create: {
+      campusId: event.campusId,
+      providerEventId: event.id,
+      orderId: event.orderId ?? relatedOrder?.id ?? null,
+      refundId: event.refundId,
+      code,
+      observedDigest: event.rawDigest,
+      status: ReconciliationStatus.OPEN,
+    },
+    update: {},
+  });
+  return { providerEventId: event.id, status: "REVIEW_REQUIRED" };
+}
+
+function isUniqueProviderEventConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function refundResponse(refund: {
+  readonly id: string;
+  readonly orderId: string;
+  readonly amountFen: number;
+  readonly reason: RefundReason;
+  readonly status: RefundStatus;
+}): RefundResponse {
+  if (refund.amountFen !== PRICE_FEN)
+    throw new Error("refund response violates fixed price invariant");
+  return {
+    id: refund.id,
+    orderId: refund.orderId,
+    amountFen: PRICE_FEN,
+    reason: refund.reason,
+    status: refund.status,
+  };
 }
 
 function orderResponse(

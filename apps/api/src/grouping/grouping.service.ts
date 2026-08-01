@@ -346,6 +346,12 @@ export class GroupingService {
             409,
           );
         }
+        await this.rejectBlockedPair(
+          transaction,
+          principal.campusId,
+          principal.userId,
+          target.members,
+        );
         const demand = await transaction.travelDemand.findFirst({
           where: { id: demandId, userId: principal.userId, campusId: principal.campusId },
           include: { groupMember: { include: { group: true } } },
@@ -552,6 +558,12 @@ export class GroupingService {
         if (!group.members.some((member) => member.userId === principal.userId)) {
           throw resourceNotFound();
         }
+        await this.rejectBlockedPair(
+          transaction,
+          principal.campusId,
+          principal.userId,
+          group.members,
+        );
         for (const member of group.members) {
           if (
             member.user.status !== AccountStatus.ACTIVE ||
@@ -875,6 +887,31 @@ export class GroupingService {
       );
     }
     return user;
+  }
+
+  private async rejectBlockedPair(
+    transaction: Transaction,
+    campusId: string,
+    joiningUserId: string,
+    members: readonly { readonly userId: string }[],
+  ): Promise<void> {
+    const otherUserIds = members
+      .map((member) => member.userId)
+      .filter((userId) => userId !== joiningUserId);
+    if (otherUserIds.length === 0) return;
+    const relation = await transaction.blockRelation.findFirst({
+      where: {
+        campusId,
+        OR: [
+          { blockerId: joiningUserId, blockedId: { in: otherUserIds } },
+          { blockedId: joiningUserId, blockerId: { in: otherUserIds } },
+        ],
+      },
+      select: { blockerId: true },
+    });
+    if (relation !== null) {
+      throw new ApplicationError("GROUP_NOT_JOINABLE", "a member is unavailable for matching", 409);
+    }
   }
 
   private async requireEligibleViewer(principal: AuthenticatedUser, now: Date): Promise<void> {

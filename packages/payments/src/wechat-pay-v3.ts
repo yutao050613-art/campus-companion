@@ -8,12 +8,15 @@ import {
   type KeyObject,
   randomBytes,
 } from "node:crypto";
+import { request as httpsRequest } from "node:https";
 
 const AUTHORIZATION_SCHEME = "WECHATPAY2-SHA256-RSA2048";
 const SIGNATURE_TYPE = "WECHATPAY2-SHA256-RSA2048";
 const RESOURCE_ALGORITHM = "AEAD_AES_256_GCM";
 const GCM_TAG_BYTES = 16;
 const DEFAULT_MAX_CLOCK_SKEW_SECONDS = 300;
+const WECHAT_PAY_API_HOSTNAME = "api.mch.weixin.qq.com";
+const MAX_PROVIDER_RESPONSE_BYTES = 1_048_576;
 
 export interface WechatPayV3Credentials {
   readonly merchantId: string;
@@ -100,6 +103,108 @@ export interface WechatPayHttpTransport {
   send(request: WechatPayHttpRequest): Promise<WechatPayHttpResponse>;
 }
 
+/**
+ * The only production-capable transport in this package. Its destination is
+ * intentionally not configurable: credentials can change, but a payment call
+ * cannot be redirected to an arbitrary URL through configuration or input.
+ * Callers must still explicitly construct this adapter; the default app and
+ * worker configurations remain offline/mock until merchant activation.
+ */
+export class WechatPayHttpsTransport implements WechatPayHttpTransport {
+  private readonly timeoutMs: number;
+
+  public constructor(options: { readonly timeoutMs?: number } = {}) {
+    this.timeoutMs = options.timeoutMs ?? 10_000;
+    if (!Number.isInteger(this.timeoutMs) || this.timeoutMs < 1_000 || this.timeoutMs > 30_000) {
+      throw configurationError("WeChat Pay transport timeout must be between 1,000 and 30,000 ms");
+    }
+  }
+
+  public send(input: WechatPayHttpRequest): Promise<WechatPayHttpResponse> {
+    const requestTarget = validateRequestTarget(input.requestTarget);
+    const body = input.body === undefined ? undefined : validateRawBody(input.body);
+    return new Promise<WechatPayHttpResponse>((resolve, reject) => {
+      const request = httpsRequest(
+        {
+          protocol: "https:",
+          hostname: WECHAT_PAY_API_HOSTNAME,
+          port: 443,
+          method: input.method,
+          path: requestTarget,
+          headers: input.headers,
+          rejectUnauthorized: true,
+          agent: false,
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          let receivedBytes = 0;
+          let rejectedResponse = false;
+          response.on("data", (chunk: Buffer) => {
+            if (!Buffer.isBuffer(chunk)) {
+              rejectedResponse = true;
+              response.destroy(
+                new WechatPayProtocolError(
+                  "INVALID_PROVIDER_RESPONSE",
+                  "WeChat Pay response body is not binary data",
+                ),
+              );
+              return;
+            }
+            receivedBytes += chunk.length;
+            if (receivedBytes > MAX_PROVIDER_RESPONSE_BYTES) {
+              rejectedResponse = true;
+              response.destroy(
+                new WechatPayProtocolError(
+                  "INVALID_PROVIDER_RESPONSE",
+                  "WeChat Pay response exceeds the maximum size",
+                ),
+              );
+              return;
+            }
+            chunks.push(chunk);
+          });
+          response.once("error", reject);
+          response.once("end", () => {
+            try {
+              if (rejectedResponse) return;
+              const status = response.statusCode;
+              if (status === undefined) {
+                throw new WechatPayProtocolError(
+                  "INVALID_PROVIDER_RESPONSE",
+                  "WeChat Pay response lacks an HTTP status",
+                );
+              }
+              const rawBytes = Buffer.concat(chunks);
+              const rawBody = rawBytes.toString("utf8");
+              if (!Buffer.from(rawBody, "utf8").equals(rawBytes)) {
+                throw new WechatPayProtocolError(
+                  "INVALID_PROVIDER_RESPONSE",
+                  "WeChat Pay response is not valid UTF-8",
+                );
+              }
+              resolve({
+                status,
+                headers: responseSignatureHeaders(response.headers),
+                rawBody,
+              });
+            } catch (error) {
+              reject(error);
+            }
+          });
+        },
+      );
+      request.once("error", reject);
+      request.setTimeout(this.timeoutMs, () => {
+        request.destroy(
+          new WechatPayProtocolError("AMBIGUOUS_PROVIDER_OUTCOME", "WeChat Pay request timed out"),
+        );
+      });
+      if (body !== undefined) request.write(body, "utf8");
+      request.end();
+    });
+  }
+}
+
 export interface WechatPayJsapiPrepayRequest {
   readonly merchantOrderNo: string;
   readonly payerOpenId: string;
@@ -131,6 +236,7 @@ export interface WechatPayRefundRequest {
 }
 
 export interface WechatPayRefundQuery {
+  readonly merchantOrderNo: string;
   readonly merchantRefundNo: string;
   readonly providerRefundId?: string;
   readonly status: "SUCCESS" | "CLOSED" | "PROCESSING" | "ABNORMAL";
@@ -501,7 +607,8 @@ export class WechatPayV3Client {
     let response: WechatPayHttpResponse;
     try {
       response = await this.transport.send(request);
-    } catch {
+    } catch (error) {
+      if (error instanceof WechatPayProtocolError) throw error;
       throw new WechatPayProtocolError(
         "AMBIGUOUS_PROVIDER_OUTCOME",
         "WeChat Pay transport outcome is unknown; query before retrying",
@@ -529,6 +636,46 @@ export class WechatPayV3Client {
 
 export function sha256Hex(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function responseSignatureHeaders(
+  headers: Readonly<Record<string, string | string[] | undefined>>,
+): WechatPaySignatureHeaders {
+  const valueFor = (name: string): string => {
+    const value = headers[name];
+    if (
+      typeof value !== "string" ||
+      value.length < 1 ||
+      value.length > 8_192 ||
+      /[\r\n]/u.test(value)
+    ) {
+      throw new WechatPayProtocolError(
+        "INVALID_PROVIDER_RESPONSE",
+        `WeChat Pay response lacks a valid ${name} header`,
+      );
+    }
+    return value;
+  };
+  const signatureType = headers["wechatpay-signature-type"];
+  if (
+    signatureType !== undefined &&
+    (typeof signatureType !== "string" ||
+      signatureType.length < 1 ||
+      signatureType.length > 128 ||
+      /[\r\n]/u.test(signatureType))
+  ) {
+    throw new WechatPayProtocolError(
+      "INVALID_PROVIDER_RESPONSE",
+      "WeChat Pay response has an invalid signature-type header",
+    );
+  }
+  return {
+    signature: valueFor("wechatpay-signature"),
+    timestamp: valueFor("wechatpay-timestamp"),
+    nonce: valueFor("wechatpay-nonce"),
+    serial: valueFor("wechatpay-serial"),
+    ...(signatureType === undefined ? {} : { signatureType }),
+  };
 }
 
 function parseNotificationEnvelope(rawBody: string): WechatPayNotificationEnvelope {
@@ -612,6 +759,19 @@ export function parseWechatPayTransaction(
   return result;
 }
 
+/**
+ * Parses a decrypted notification before a local order is known. It validates
+ * the WeChat merchant/AppID and provider schema, but intentionally does not
+ * treat its order number or amount as an internal business fact. The caller
+ * must persist the verified external event and compare it with a local order.
+ */
+export function parseWechatPayTransactionNotice(
+  plaintext: string,
+  expected: { readonly merchantId: string; readonly appId: string },
+): WechatPayOrderQuery {
+  return parseOrderQuery(parseProviderJson(plaintext), expected);
+}
+
 export function parseWechatPayRefund(
   plaintext: string,
   expected: {
@@ -634,6 +794,11 @@ export function parseWechatPayRefund(
     throw invalidProviderResponse("refund amount does not match the local intent");
   }
   return result;
+}
+
+/** Parses a verified refund notification before it is matched to local state. */
+export function parseWechatPayRefundNotice(plaintext: string): WechatPayRefundQuery {
+  return parseRefundQuery(parseProviderJson(plaintext));
 }
 
 function parseOrderQuery(
@@ -696,9 +861,7 @@ function parseOrderQuery(
   };
 }
 
-function parseRefundQuery(body: Record<string, unknown>): WechatPayRefundQuery & {
-  readonly merchantOrderNo: string;
-} {
+function parseRefundQuery(body: Record<string, unknown>): WechatPayRefundQuery {
   const amount = requireRecord(body["amount"], "refund amount");
   return {
     merchantRefundNo: requireMerchantReference(

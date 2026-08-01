@@ -280,6 +280,7 @@ describe("GroupingService", () => {
           .mockResolvedValueOnce([]),
         update: vi.fn().mockResolvedValue({}),
       },
+      blockRelation: { findFirst: vi.fn().mockResolvedValue(null) },
       outboxEvent: { create: vi.fn().mockResolvedValue({}) },
     };
     await expect(
@@ -316,6 +317,7 @@ describe("GroupingService", () => {
         findFirst: vi.fn().mockResolvedValue({ ...demandB, groupMember: null }),
       },
       groupMember: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn() },
+      blockRelation: { findFirst: vi.fn().mockResolvedValue(null) },
     };
     await expect(
       service(transaction).joinGroup(
@@ -365,6 +367,7 @@ describe("GroupingService", () => {
         aggregate: vi.fn().mockResolvedValue({ _max: { sequence: null } }),
         create: vi.fn().mockResolvedValue(round),
       },
+      blockRelation: { findFirst: vi.fn().mockResolvedValue(null) },
       outboxEvent: { create: vi.fn().mockResolvedValue({}) },
     };
     await expect(
@@ -603,6 +606,7 @@ describe("GroupingService", () => {
       companionGroup: { findFirst: vi.fn().mockResolvedValue(maleTarget) },
       travelDemand: { findFirst: vi.fn().mockResolvedValue({ ...demandB, groupMember: null }) },
       groupMember: { findMany: vi.fn().mockResolvedValue([]) },
+      blockRelation: { findFirst: vi.fn().mockResolvedValue(null) },
     };
     await expect(
       service(joinTransaction).joinGroup(
@@ -613,6 +617,27 @@ describe("GroupingService", () => {
         now,
       ),
     ).rejects.toMatchObject({ code: "GENDER_PREFERENCE_INCOMPATIBLE" });
+  });
+
+  it("rejects a block relation before it can move a demand into a group", async () => {
+    const target = { ...groupView(GroupState.RECRUITING), members: [memberA] };
+    const transaction = {
+      user: eligibleUserDelegate(userB),
+      companionGroup: { findFirst: vi.fn().mockResolvedValue(target) },
+      blockRelation: { findFirst: vi.fn().mockResolvedValue({ blockerId: userAId }) },
+      travelDemand: { findFirst: vi.fn() },
+      groupMember: { findMany: vi.fn() },
+    };
+    await expect(
+      service(transaction).joinGroup(
+        principalB,
+        groupId,
+        demandBId,
+        "m5-blocked-join-unit-0001",
+        now,
+      ),
+    ).rejects.toMatchObject({ code: "GROUP_NOT_JOINABLE" });
+    expect(transaction.travelDemand.findFirst).not.toHaveBeenCalled();
   });
 
   it("rejects stale, altered, duplicate and wrong-policy formation decisions without writes", async () => {

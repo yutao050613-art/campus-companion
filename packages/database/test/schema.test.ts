@@ -30,7 +30,10 @@ describe("database architecture boundary", () => {
       "CompanionGroup",
       "FormationRound",
       "ServiceOrder",
+      "PaymentTransaction",
       "Refund",
+      "ProviderEvent",
+      "ReconciliationException",
       "ContactUnlock",
       "ContactAccessLog",
       "AdminSession",
@@ -92,6 +95,35 @@ describe("database architecture boundary", () => {
     expect(migration).toContain('CONSTRAINT "AdminSession_lifetime_check"');
     expect(migration).toContain('FUNCTION "consume_verification_asset_access_grant"');
     expect(migration).toContain("VerificationAssetAccessGrant_usedAt_immutable_trigger");
+    expect(migration).toContain('CREATE TYPE "ProviderEventStatus"');
+    expect(migration).toContain('CREATE TYPE "ReconciliationStatus"');
+    expect(migration).toContain('CONSTRAINT "ProviderEvent_provider_eventId_key"');
+    expect(migration).toContain('CONSTRAINT "ProviderEvent_digest_check"');
+    expect(migration).toContain('CONSTRAINT "ReconciliationException_evidence_check"');
+    expect(migration).toContain('CREATE FUNCTION "enforce_m5_provider_event_guard"()');
+    expect(migration).toContain('CREATE FUNCTION "enforce_m5_payment_transaction_guard"()');
+    expect(migration).toContain('CREATE FUNCTION "enforce_m5_refund_guard"()');
+    expect(migration).toContain('CREATE FUNCTION "enforce_m5_reconciliation_exception_guard"()');
+    expect(migration).toContain("ProviderEvent_m5_guard");
+    expect(migration).toContain("PaymentTransaction_m5_wechat_guard");
+  });
+
+  it("models provider evidence before payment settlement and keeps it privacy-minimized", () => {
+    const providerEvent = modelBody("ProviderEvent");
+    const reconciliation = modelBody("ReconciliationException");
+    const refund = modelBody("Refund");
+
+    expect(providerEvent).toMatch(/campusId\s+String\?/);
+    expect(providerEvent).toMatch(/rawDigest\s+String\s+@db\.Char\(64\)/);
+    expect(providerEvent).toMatch(/amountFen\s+Int/);
+    expect(providerEvent).toMatch(/currency\s+String\s+@db\.Char\(3\)/);
+    expect(providerEvent).toMatch(/@@unique\(\[provider, eventId\]\)/);
+    expect(providerEvent).not.toMatch(/rawPayload|ciphertext|wechatId|phone/i);
+    expect(reconciliation).toMatch(/providerEventId\s+String\?\s+@unique/);
+    expect(reconciliation).toMatch(/expectedDigest\s+String\?/);
+    expect(reconciliation).toMatch(/observedDigest\s+String\?/);
+    expect(refund).toMatch(/merchantRefundNo\s+String\s+@unique/);
+    expect(refund).toMatch(/providerEventId\s+String\?\s+@unique/);
   });
 
   it("registers the reviewed M2 sensitive-information policy without rewriting M1", () => {

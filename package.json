@@ -29,7 +29,8 @@
     "verify:m2": "node ./tools/run-powershell.mjs ./tools/verify-m2.ps1",
     "verify:m3": "node ./tools/run-powershell.mjs ./tools/verify-m3.ps1",
     "verify:m4": "node ./tools/run-powershell.mjs ./tools/verify-m4.ps1",
-    "check": "pnpm verify:m0 && pnpm api:lint && pnpm lint && pnpm security:static && pnpm typecheck && pnpm test && pnpm test:coverage && pnpm build && pnpm db:validate && pnpm verify:m1 && pnpm verify:m2 && pnpm verify:m3 && pnpm verify:m4"
+    "verify:m5": "node ./tools/run-powershell.mjs ./tools/verify-m5.ps1",
+    "check": "pnpm verify:m0 && pnpm api:lint && pnpm lint && pnpm security:static && pnpm typecheck && pnpm test && pnpm test:coverage && pnpm build && pnpm db:validate && pnpm verify:m1 && pnpm verify:m2 && pnpm verify:m3 && pnpm verify:m4 && pnpm verify:m5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",

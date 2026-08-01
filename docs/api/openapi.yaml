@@ -829,6 +829,75 @@ paths:
         '204': { description: 已解除拉黑 }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /admin/reports:
+    get:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: List campus safety reports for an authorized reviewer
+      operationId: listAdminReports
+      parameters:
+        - name: campusId
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: cursor
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: Safety reports scoped to the reviewer campus grant
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: '#/components/schemas/AdminReport' }
+                  nextCursor: { type: [string, 'null'], format: uuid }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/reports/{reportId}/decision:
+    post:
+      tags: [Admin]
+      security:
+        - adminCookie: []
+          csrfToken: []
+      summary: Apply a safety-review decision with audit evidence
+      operationId: decideAdminReport
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: reportId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, reasonCode]
+              properties:
+                decision: { type: string, enum: [REVIEW, RESOLVE, REJECT, RESTRICT_SUBJECT] }
+                reasonCode: { type: string, minLength: 1, maxLength: 100, pattern: '^[A-Z0-9_:-]+$' }
+      responses:
+        '200':
+          description: Reviewed report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /admin/auth/login:
     post:
       tags: [Admin]
@@ -1658,6 +1727,19 @@ components:
         subjectUserId: { type: [string, 'null'], format: uuid }
         category: { type: string, enum: [HARASSMENT, IMPERSONATION, NO_SHOW, PRIVACY, UNSAFE_BEHAVIOR, OTHER] }
         description: { type: string, minLength: 1, maxLength: 1000 }
+    AdminReport:
+      type: object
+      additionalProperties: false
+      required: [id, campusId, groupId, subjectUserId, category, description, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        campusId: { $ref: '#/components/schemas/Uuid' }
+        groupId: { $ref: '#/components/schemas/Uuid' }
+        subjectUserId: { type: [string, 'null'], format: uuid }
+        category: { type: string, enum: [HARASSMENT, IMPERSONATION, NO_SHOW, PRIVACY, UNSAFE_BEHAVIOR, OTHER] }
+        description: { type: string, minLength: 1, maxLength: 1000 }
+        status: { type: string, enum: [OPEN, REVIEWING, RESOLVED, REJECTED] }
+        createdAt: { type: string, format: date-time }
     AdminCreateRouteRequest:
       type: object
       additionalProperties: false

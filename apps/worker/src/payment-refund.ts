@@ -3,6 +3,7 @@ import {
   DemandStatus,
   GroupState,
   MemberStatus,
+  markFormationRoundForManualRefundReview,
   OrderStatus,
   PaymentProvider,
   PaymentStatus,
@@ -11,6 +12,7 @@ import {
   RefundReason,
   RefundStatus,
   RoundState,
+  recoverRefundedFormationRound,
 } from "@campus/database";
 import { MockPaymentGateway, type MockRefundSettlement } from "@campus/payments";
 
@@ -203,7 +205,8 @@ export class PrismaPaymentRefundRepository implements PaymentRefundRepository {
           where: { id: refundId, status: RefundStatus.REFUND_PENDING },
           data: { status: RefundStatus.REVIEW_REQUIRED },
         });
-        if (refund !== null) await markRoundForManualReview(transaction, refund.order.round.id);
+        if (refund !== null)
+          await markFormationRoundForManualRefundReview(transaction, refund.order.round.id);
         return null;
       }
       return {
@@ -257,7 +260,7 @@ export class PrismaPaymentRefundRepository implements PaymentRefundRepository {
         where: { id: refund.orderId, status: OrderStatus.REFUND_PENDING },
         data: { status: OrderStatus.REFUNDED },
       });
-      await recoverRoundIfRefunded(transaction, refund.order.round.id, now);
+      await recoverRefundedFormationRound(transaction, refund.order.round.id, now);
       return true;
     });
   }
@@ -276,90 +279,6 @@ export async function runPaymentRefundSweep(
     if (await repository.settleRefund(refundId, now)) refundsSettled += 1;
   }
   return { roundsInvalidated, refundsSettled };
-}
-
-async function recoverRoundIfRefunded(
-  transaction: Prisma.TransactionClient,
-  roundId: string,
-  now: Date,
-): Promise<void> {
-  const round = await transaction.formationRound.findUnique({
-    where: { id: roundId },
-    include: {
-      group: {
-        include: {
-          members: {
-            where: { status: MemberStatus.PAID },
-            select: { id: true, seatCount: true },
-          },
-        },
-      },
-      orders: { select: { status: true } },
-      contactConsents: { select: { id: true, revokedAt: true } },
-    },
-  });
-  if (
-    round === null ||
-    round.state !== RoundState.REFUNDING ||
-    round.group.state !== GroupState.REFUNDING
-  ) {
-    return;
-  }
-  if (round.orders.some((order) => order.status === OrderStatus.REFUND_PENDING)) return;
-  if (round.orders.some((order) => order.status === OrderStatus.REFUND_FAILED)) {
-    await markRoundForManualReview(transaction, round.id);
-    return;
-  }
-  if (round.orders.some((order) => order.status === OrderStatus.PAID)) return;
-
-  const remaining = round.group.members;
-  const occupiedSeats = remaining.reduce((total, member) => total + member.seatCount, 0);
-  if (occupiedSeats > 4) throw new Error("compensated group exceeds M3 capacity");
-  const recoveredState =
-    remaining.length === 0
-      ? GroupState.EXPIRED
-      : remaining.length === 1
-        ? GroupState.RECRUITING
-        : GroupState.READY;
-  if (remaining.length > 0) {
-    await transaction.groupMember.updateMany({
-      where: { id: { in: remaining.map((member) => member.id) }, status: MemberStatus.PAID },
-      data: { status: MemberStatus.JOINED },
-    });
-  }
-  await transaction.formationRound.update({
-    where: { id: round.id },
-    data: { state: RoundState.INVALIDATED, invalidatedAt: now },
-  });
-  await transaction.companionGroup.update({
-    where: { id: round.groupId, state: GroupState.REFUNDING },
-    data: { state: recoveredState, version: { increment: 1 } },
-  });
-  await transaction.outboxEvent.create({
-    data: {
-      campusId: round.campusId,
-      aggregateType: "FormationRound",
-      aggregateId: round.id,
-      eventType: "RoundRefundedAndRecovered",
-      payload: { remainingAccountCount: remaining.length, occupiedSeats },
-    },
-  });
-}
-
-async function markRoundForManualReview(
-  transaction: Prisma.TransactionClient,
-  roundId: string,
-): Promise<void> {
-  const round = await transaction.formationRound.findUnique({ where: { id: roundId } });
-  if (round === null) return;
-  await transaction.formationRound.updateMany({
-    where: { id: round.id, state: { in: [RoundState.REFUNDING, RoundState.REFUND_RETRY] } },
-    data: { state: RoundState.REFUND_RETRY },
-  });
-  await transaction.companionGroup.updateMany({
-    where: { id: round.groupId, state: { in: [GroupState.REFUNDING, GroupState.REFUND_RETRY] } },
-    data: { state: GroupState.REFUND_RETRY, version: { increment: 1 } },
-  });
 }
 
 async function campusIdForRound(

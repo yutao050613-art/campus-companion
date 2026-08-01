@@ -130,6 +130,18 @@ enum PaymentStatus {
   FAILED
 }
 
+enum ProviderEventStatus {
+  RECEIVED
+  APPLIED
+  REVIEW_REQUIRED
+  REJECTED
+}
+
+enum ReconciliationStatus {
+  OPEN
+  RESOLVED
+}
+
 enum RefundReason {
   PLATFORM_NOT_DELIVERED
   DUPLICATE_CHARGE
@@ -203,25 +215,27 @@ enum ContactAccessOutcome {
 }
 
 model Campus {
-  id                      String                         @id @default(uuid()) @db.Uuid
-  name                    String                         @db.VarChar(100)
-  status                  CatalogStatus                  @default(ACTIVE)
-  timezone                String                         @default("Asia/Shanghai") @db.VarChar(64)
-  createdAt               DateTime                       @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime                       @updatedAt @db.Timestamptz(3)
-  users                   User[]
-  places                  Place[]
-  routes                  Route[]
-  verifications           StudentVerification[]
-  demands                 TravelDemand[]
-  groups                  CompanionGroup[]
-  reports                 Report[]
-  riskEvents              RiskEvent[]
-  auditLogs               AuditLog[]
-  configs                 SystemConfig[]
-  adminScopes             AdminCampusScope[]
-  contactAccessLogs       ContactAccessLog[]
-  verificationAssetGrants VerificationAssetAccessGrant[]
+  id                       String                         @id @default(uuid()) @db.Uuid
+  name                     String                         @db.VarChar(100)
+  status                   CatalogStatus                  @default(ACTIVE)
+  timezone                 String                         @default("Asia/Shanghai") @db.VarChar(64)
+  createdAt                DateTime                       @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime                       @updatedAt @db.Timestamptz(3)
+  users                    User[]
+  places                   Place[]
+  routes                   Route[]
+  verifications            StudentVerification[]
+  demands                  TravelDemand[]
+  groups                   CompanionGroup[]
+  reports                  Report[]
+  riskEvents               RiskEvent[]
+  auditLogs                AuditLog[]
+  configs                  SystemConfig[]
+  adminScopes              AdminCampusScope[]
+  contactAccessLogs        ContactAccessLog[]
+  verificationAssetGrants  VerificationAssetAccessGrant[]
+  providerEvents           ProviderEvent[]
+  reconciliationExceptions ReconciliationException[]
 
   @@unique([name])
   @@index([status])
@@ -313,21 +327,21 @@ model StudentVerification {
 }
 
 model VerificationAsset {
-  id              String              @id @default(uuid()) @db.Uuid
-  campusId        String              @db.Uuid
-  verificationId  String              @db.Uuid
-  type            VerificationAssetType
-  objectKey       String              @unique @db.VarChar(512)
-  contentDigest   String?             @db.Char(64)
-  contentType     String?             @db.VarChar(100)
-  sizeBytes       Int?
-  deleteAfter     DateTime?           @db.Timestamptz(3)
-  deletionClaimedAt DateTime?         @db.Timestamptz(3)
-  uploadExpiresAt DateTime            @db.Timestamptz(3)
-  deletedAt       DateTime?           @db.Timestamptz(3)
-  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
-  verification    StudentVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
-  accessGrants    VerificationAssetAccessGrant[]
+  id                String                         @id @default(uuid()) @db.Uuid
+  campusId          String                         @db.Uuid
+  verificationId    String                         @db.Uuid
+  type              VerificationAssetType
+  objectKey         String                         @unique @db.VarChar(512)
+  contentDigest     String?                        @db.Char(64)
+  contentType       String?                        @db.VarChar(100)
+  sizeBytes         Int?
+  deleteAfter       DateTime?                      @db.Timestamptz(3)
+  deletionClaimedAt DateTime?                      @db.Timestamptz(3)
+  uploadExpiresAt   DateTime                       @db.Timestamptz(3)
+  deletedAt         DateTime?                      @db.Timestamptz(3)
+  createdAt         DateTime                       @default(now()) @db.Timestamptz(3)
+  verification      StudentVerification            @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  accessGrants      VerificationAssetAccessGrant[]
 
   @@unique([verificationId, type])
   @@unique([campusId, verificationId, id])
@@ -489,22 +503,24 @@ model MemberConfirmation {
 }
 
 model ServiceOrder {
-  id              String               @id @default(uuid()) @db.Uuid
-  campusId        String               @db.Uuid
-  roundId         String               @db.Uuid
-  userId          String               @db.Uuid
-  merchantOrderNo String               @unique @db.VarChar(64)
-  amountFen       Int                  @default(99)
-  currency        String               @default("CNY") @db.Char(3)
-  pricingVersion  String               @db.VarChar(50)
-  status          OrderStatus          @default(CREATED)
-  expiresAt       DateTime             @db.Timestamptz(3)
-  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
-  round           FormationRound       @relation(fields: [roundId], references: [id], onDelete: Restrict)
-  user            User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
-  transactions    PaymentTransaction[]
-  refunds         Refund[]
+  id                       String                    @id @default(uuid()) @db.Uuid
+  campusId                 String                    @db.Uuid
+  roundId                  String                    @db.Uuid
+  userId                   String                    @db.Uuid
+  merchantOrderNo          String                    @unique @db.VarChar(64)
+  amountFen                Int                       @default(99)
+  currency                 String                    @default("CNY") @db.Char(3)
+  pricingVersion           String                    @db.VarChar(50)
+  status                   OrderStatus               @default(CREATED)
+  expiresAt                DateTime                  @db.Timestamptz(3)
+  createdAt                DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime                  @updatedAt @db.Timestamptz(3)
+  round                    FormationRound            @relation(fields: [roundId], references: [id], onDelete: Restrict)
+  user                     User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transactions             PaymentTransaction[]
+  refunds                  Refund[]
+  providerEvents           ProviderEvent[]
+  reconciliationExceptions ReconciliationException[]
 
   @@unique([roundId, userId])
   @@index([campusId, userId, status, createdAt])
@@ -519,30 +535,94 @@ model PaymentTransaction {
   providerTransactionId String?         @unique @db.VarChar(128)
   status                PaymentStatus   @default(PENDING)
   rawDigest             String          @db.Char(64)
+  providerEventId       String?         @unique @db.Uuid
   occurredAt            DateTime?       @db.Timestamptz(3)
   createdAt             DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime        @updatedAt @db.Timestamptz(3)
   order                 ServiceOrder    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  providerEvent         ProviderEvent?  @relation("PaymentEvent", fields: [providerEventId], references: [id], onDelete: Restrict)
 
   @@index([campusId, orderId, status])
 }
 
 model Refund {
-  id               String       @id @default(uuid()) @db.Uuid
-  campusId         String       @db.Uuid
-  orderId          String       @db.Uuid
-  providerRefundId String?      @unique @db.VarChar(128)
-  amountFen        Int
-  reason           RefundReason
-  status           RefundStatus @default(REQUESTED)
-  requestedAt      DateTime     @default(now()) @db.Timestamptz(3)
-  completedAt      DateTime?    @db.Timestamptz(3)
-  updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
-  order            ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  id                       String                    @id @default(uuid()) @db.Uuid
+  campusId                 String                    @db.Uuid
+  orderId                  String                    @db.Uuid
+  merchantRefundNo         String                    @unique @default(uuid()) @db.VarChar(64)
+  providerRefundId         String?                   @unique @db.VarChar(128)
+  providerEventId          String?                   @unique @db.Uuid
+  amountFen                Int
+  reason                   RefundReason
+  status                   RefundStatus              @default(REQUESTED)
+  requestedAt              DateTime                  @default(now()) @db.Timestamptz(3)
+  completedAt              DateTime?                 @db.Timestamptz(3)
+  updatedAt                DateTime                  @updatedAt @db.Timestamptz(3)
+  order                    ServiceOrder              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  providerEvent            ProviderEvent?            @relation("RefundEvent", fields: [providerEventId], references: [id], onDelete: Restrict)
+  providerEvents           ProviderEvent[]
+  reconciliationExceptions ReconciliationException[]
 
+  @@unique([orderId, reason])
   @@index([campusId, orderId, status])
   @@index([campusId, status, requestedAt])
-  @@unique([orderId, reason])
+}
+
+model ProviderEvent {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  campusId                 String?                   @db.Uuid
+  provider                 PaymentProvider
+  eventId                  String                    @db.VarChar(128)
+  eventType                String                    @db.VarChar(100)
+  verifierKeyId            String                    @db.VarChar(128)
+  rawDigest                String                    @db.Char(64)
+  merchantOrderNo          String?                   @db.VarChar(64)
+  merchantRefundNo         String?                   @db.VarChar(64)
+  providerTransactionId    String?                   @db.VarChar(128)
+  providerRefundId         String?                   @db.VarChar(128)
+  amountFen                Int
+  currency                 String                    @db.Char(3)
+  occurredAt               DateTime?                 @db.Timestamptz(3)
+  status                   ProviderEventStatus       @default(RECEIVED)
+  appliedAt                DateTime?                 @db.Timestamptz(3)
+  createdAt                DateTime                  @default(now()) @db.Timestamptz(3)
+  orderId                  String?                   @db.Uuid
+  refundId                 String?                   @db.Uuid
+  campus                   Campus?                   @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  order                    ServiceOrder?             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  refund                   Refund?                   @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  paymentTransaction       PaymentTransaction?       @relation("PaymentEvent")
+  refundTransaction        Refund?                   @relation("RefundEvent")
+  reconciliationExceptions ReconciliationException[]
+
+  @@unique([provider, eventId])
+  @@index([campusId, status, createdAt])
+  @@index([campusId, merchantOrderNo, createdAt])
+  @@index([campusId, merchantRefundNo, createdAt])
+  @@index([orderId, createdAt])
+  @@index([refundId, createdAt])
+}
+
+model ReconciliationException {
+  id              String               @id @default(uuid()) @db.Uuid
+  campusId        String?              @db.Uuid
+  providerEventId String?              @unique @db.Uuid
+  orderId         String?              @db.Uuid
+  refundId        String?              @db.Uuid
+  code            String               @db.VarChar(100)
+  expectedDigest  String?              @db.Char(64)
+  observedDigest  String?              @db.Char(64)
+  status          ReconciliationStatus @default(OPEN)
+  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
+  resolvedAt      DateTime?            @db.Timestamptz(3)
+  campus          Campus?              @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  providerEvent   ProviderEvent?       @relation(fields: [providerEventId], references: [id], onDelete: Restrict)
+  order           ServiceOrder?        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  refund          Refund?              @relation(fields: [refundId], references: [id], onDelete: Restrict)
+
+  @@index([campusId, status, createdAt])
+  @@index([orderId, status, createdAt])
+  @@index([refundId, status, createdAt])
 }
 
 model PolicyVersion {
@@ -645,6 +725,7 @@ model Report {
   group         CompanionGroup? @relation(fields: [groupId], references: [id], onDelete: Restrict)
 
   @@index([campusId, status, createdAt])
+  @@index([reporterId, createdAt])
   @@index([subjectUserId, status])
   @@index([groupId, status])
 }
@@ -736,22 +817,22 @@ model AdminSession {
 }
 
 model VerificationAssetAccessGrant {
-  id             String              @id @default(uuid()) @db.Uuid
-  campusId       String              @db.Uuid
-  verificationId String              @db.Uuid
-  verificationAssetId String         @db.Uuid
-  adminUserId    String              @db.Uuid
-  adminSessionId String              @db.Uuid
-  tokenDigest    String              @unique @db.Char(64)
-  requestId      String              @unique @db.VarChar(100)
-  expiresAt      DateTime            @db.Timestamptz(3)
-  usedAt         DateTime?           @db.Timestamptz(3)
-  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
-  campus         Campus              @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  verification   StudentVerification @relation(fields: [verificationId], references: [id], onDelete: Restrict)
-  verificationAsset VerificationAsset @relation(fields: [verificationAssetId], references: [id], onDelete: Restrict)
-  adminUser      AdminUser           @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
-  adminSession   AdminSession        @relation(fields: [adminSessionId], references: [id], onDelete: Restrict)
+  id                  String              @id @default(uuid()) @db.Uuid
+  campusId            String              @db.Uuid
+  verificationId      String              @db.Uuid
+  verificationAssetId String              @db.Uuid
+  adminUserId         String              @db.Uuid
+  adminSessionId      String              @db.Uuid
+  tokenDigest         String              @unique @db.Char(64)
+  requestId           String              @unique @db.VarChar(100)
+  expiresAt           DateTime            @db.Timestamptz(3)
+  usedAt              DateTime?           @db.Timestamptz(3)
+  createdAt           DateTime            @default(now()) @db.Timestamptz(3)
+  campus              Campus              @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  verification        StudentVerification @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  verificationAsset   VerificationAsset   @relation(fields: [verificationAssetId], references: [id], onDelete: Restrict)
+  adminUser           AdminUser           @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  adminSession        AdminSession        @relation(fields: [adminSessionId], references: [id], onDelete: Restrict)
 
   @@index([campusId, verificationId, expiresAt, usedAt])
   @@index([verificationAssetId, expiresAt, usedAt])

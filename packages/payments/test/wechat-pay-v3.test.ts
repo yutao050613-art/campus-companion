@@ -1,13 +1,21 @@
 import { createCipheriv, createSign, createVerify, generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { describe, expect, it, vi } from "vitest";
 import {
+  parseWechatPayRefund,
+  parseWechatPayRefundNotice,
   parseWechatPayTransaction,
+  parseWechatPayTransactionNotice,
   type WechatPayHttpRequest,
+  WechatPayHttpsTransport,
   WechatPayProtocolError,
   type WechatPaySignatureHeaders,
   WechatPayV3Client,
   WechatPayV3Protocol,
 } from "../src/wechat-pay-v3";
+
+const httpsMock = vi.hoisted(() => ({ request: vi.fn() }));
+vi.mock("node:https", () => ({ request: httpsMock.request }));
 
 const merchant = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const platform = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -30,6 +38,116 @@ function protocol(): WechatPayV3Protocol {
 }
 
 describe("WeChat Pay API v3 protocol", () => {
+  it("does not permit an unbounded outbound HTTPS timeout", () => {
+    expect(() => new WechatPayHttpsTransport({ timeoutMs: 999 })).toThrowError("transport timeout");
+    expect(() => new WechatPayHttpsTransport({ timeoutMs: 30_001 })).toThrowError(
+      "transport timeout",
+    );
+  });
+
+  it("uses only the fixed verified HTTPS endpoint and bounds provider responses", async () => {
+    const transport = new WechatPayHttpsTransport();
+    const request = mockHttpsReply({
+      status: 200,
+      rawBody: '{"prepay_id":"wx201410272009395522657a690389285100"}',
+      headers: signPlatformMessage(
+        String(Math.floor(Date.now() / 1_000)),
+        "httpsResponseNonce000000000001",
+        '{"prepay_id":"wx201410272009395522657a690389285100"}',
+      ),
+    });
+    await expect(
+      transport.send({
+        method: "POST",
+        requestTarget: "/v3/pay/transactions/jsapi",
+        headers: { Authorization: "test" },
+        body: "{}",
+      }),
+    ).resolves.toMatchObject({
+      status: 200,
+      rawBody: '{"prepay_id":"wx201410272009395522657a690389285100"}',
+    });
+    expect(httpsMock.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        protocol: "https:",
+        hostname: "api.mch.weixin.qq.com",
+        port: 443,
+        rejectUnauthorized: true,
+        agent: false,
+      }),
+      expect.any(Function),
+    );
+    expect(request.request.write).toHaveBeenCalledWith("{}", "utf8");
+
+    const oversized = mockHttpsReply({
+      status: 200,
+      rawBody: "x".repeat(1_048_577),
+      headers: signPlatformMessage(
+        String(Math.floor(Date.now() / 1_000)),
+        "httpsResponseNonce000000000002",
+        "{}",
+      ),
+    });
+    await expect(
+      transport.send({
+        method: "GET",
+        requestTarget: "/v3/pay/transactions/out-trade-no/test",
+        headers: {},
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+    expect(oversized.destroy).toHaveBeenCalledOnce();
+
+    mockHttpsReply({
+      status: 200,
+      rawBody: "{}",
+      headers: {} as WechatPaySignatureHeaders,
+    });
+    await expect(
+      transport.send({
+        method: "GET",
+        requestTarget: "/v3/pay/transactions/out-trade-no/test",
+        headers: {},
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+
+    mockHttpsReply({
+      status: 200,
+      rawBody: "{}",
+      headers: {
+        ...signPlatformMessage(
+          String(Math.floor(Date.now() / 1_000)),
+          "httpsResponseNonce000000000004",
+          "{}",
+        ),
+        signatureType: "WECHATPAY2-SHA256-RSA2048\nspoofed",
+      },
+    });
+    await expect(
+      transport.send({
+        method: "GET",
+        requestTarget: "/v3/pay/transactions/out-trade-no/test",
+        headers: {},
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+
+    mockHttpsReply({
+      status: undefined as never,
+      rawBody: "{}",
+      headers: signPlatformMessage(
+        String(Math.floor(Date.now() / 1_000)),
+        "httpsResponseNonce000000000003",
+        "{}",
+      ),
+    });
+    await expect(
+      transport.send({
+        method: "GET",
+        requestTarget: "/v3/pay/transactions/out-trade-no/test",
+        headers: {},
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+  });
+
   it("constructs the exact five-line request signature and authorization", () => {
     const body = '{"appid":"wx2421b1c4370ec43b","mchid":"1900007291"}';
     const signed = protocol().createAuthorization({
@@ -104,6 +222,17 @@ describe("WeChat Pay API v3 protocol", () => {
         merchantId: "1900007291",
         appId: "wx2421b1c4370ec43b",
         amountFen: 99,
+      }),
+    ).toMatchObject({
+      merchantOrderNo: "m5_0123456789abcdef",
+      transactionId: "4200000000000000000000000001",
+      tradeState: "SUCCESS",
+      amountFen: 99,
+    });
+    expect(
+      parseWechatPayTransactionNotice(result.plaintext, {
+        merchantId: "1900007291",
+        appId: "wx2421b1c4370ec43b",
       }),
     ).toMatchObject({
       merchantOrderNo: "m5_0123456789abcdef",
@@ -192,6 +321,109 @@ describe("WeChat Pay API v3 protocol", () => {
     ).toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
   });
 
+  it("rejects invalid request construction and malformed notification envelopes without network I/O", () => {
+    expect(() =>
+      protocol().createAuthorization({
+        method: "TRACE",
+        requestTarget: "/v3/pay/transactions/jsapi",
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REQUEST" }));
+    expect(() =>
+      protocol().createAuthorization({
+        method: "POST",
+        requestTarget: "//api.mch.weixin.qq.com/v3/pay",
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REQUEST" }));
+    expect(() =>
+      protocol().createAuthorization({
+        method: "POST",
+        requestTarget: "/v3/pay#fragment",
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REQUEST" }));
+    expect(() =>
+      protocol().createAuthorization({
+        method: "POST",
+        requestTarget: "/v3/pay",
+        body: "x".repeat(1_048_577),
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REQUEST" }));
+    expect(() =>
+      protocol().createMiniProgramPaymentParameters({
+        prepayId: "bad space",
+        timestamp: 1_554_208_460,
+        nonce: "593BEC0C930BF1AFEB40B4A08C8FB242",
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REQUEST" }));
+    const now = new Date("2029-03-18T02:00:00.000Z");
+    const headers = signPlatformMessage(
+      String(Math.floor(now.getTime() / 1_000)),
+      "notificationNonce000000000009",
+      "not json",
+    );
+    expect(() => protocol().parseAndVerifyNotification(headers, "not json", { now })).toThrowError(
+      expect.objectContaining({ code: "INVALID_RESOURCE" }),
+    );
+    expect(
+      () =>
+        new WechatPayV3Protocol({
+          merchantId: "1900007291",
+          appId: "wx2421b1c4370ec43b",
+          merchantCertificateSerial: "408B07E79B8269FEC3D5D3E6AB8ED163A6A380DB",
+          merchantPrivateKeyPem,
+          apiV3Key,
+          verifierPublicKeys: new Map(),
+        }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
+    expect(() =>
+      new WechatPayHttpsTransport().send({
+        method: "POST",
+        requestTarget: "//redirected.example.test/v3/pay",
+        headers: {},
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REQUEST" }));
+  });
+
+  it("accepts optional protocol fields only in their canonical safe forms", () => {
+    const subject = protocol();
+    expect(
+      subject.createAuthorization({
+        method: "get",
+        requestTarget: "/v3/pay/transactions/out-trade-no/test",
+      }),
+    ).toMatchObject({ authorization: expect.stringContaining('mchid="1900007291"') });
+    expect(
+      subject.createMiniProgramPaymentParameters({
+        prepayId: "wx201410272009395522657a690389285100",
+      }),
+    ).toMatchObject({ signType: "RSA", package: expect.stringContaining("prepay_id=") });
+    const plaintext = "optional resource fields";
+    const encrypted = encryptResource(plaintext, "");
+    const resource = {
+      algorithm: encrypted.algorithm,
+      ciphertext: encrypted.ciphertext,
+      nonce: encrypted.nonce,
+    };
+    expect(subject.decryptResource(resource)).toBe(plaintext);
+    const now = new Date("2029-03-18T02:00:00.000Z");
+    const rawBody = JSON.stringify({
+      id: "EV-20290318-00000009",
+      create_time: "2029-03-18T10:00:00+08:00",
+      event_type: "TRANSACTION.SUCCESS",
+      resource_type: "encrypt-resource",
+      summary: "",
+      resource,
+    });
+    const headers = signPlatformMessage(
+      String(Math.floor(now.getTime() / 1_000)),
+      "notificationNonce000000000010",
+      rawBody,
+    );
+    const { signatureType: _signatureType, ...headersWithoutType } = headers;
+    expect(subject.parseAndVerifyNotification(headersWithoutType, rawBody, { now }).plaintext).toBe(
+      plaintext,
+    );
+  });
+
   it("signs server-owned JSAPI fields and verifies the signed prepay reply", async () => {
     const requests: WechatPayHttpRequest[] = [];
     const client = new WechatPayV3Client(protocol(), {
@@ -234,6 +466,17 @@ describe("WeChat Pay API v3 protocol", () => {
       transportFailure.queryOrder("m5_0123456789abcdef0123456789abcdef"),
     ).rejects.toMatchObject({
       code: "AMBIGUOUS_PROVIDER_OUTCOME",
+    });
+
+    const malformedTransportReply = new WechatPayV3Client(protocol(), {
+      async send() {
+        throw new WechatPayProtocolError("INVALID_PROVIDER_RESPONSE", "response was malformed");
+      },
+    });
+    await expect(
+      malformedTransportReply.queryOrder("m5_0123456789abcdef0123456789abcdef"),
+    ).rejects.toMatchObject({
+      code: "INVALID_PROVIDER_RESPONSE",
     });
 
     const serverFailure = new WechatPayV3Client(protocol(), {
@@ -293,6 +536,74 @@ describe("WeChat Pay API v3 protocol", () => {
     });
   });
 
+  it("queries signed terminal facts and rejects provider protocol, schema, and business mismatches", async () => {
+    const client = new WechatPayV3Client(protocol(), {
+      async send(request) {
+        if (request.requestTarget.startsWith("/v3/pay/transactions/out-trade-no/")) {
+          return signedReply(
+            200,
+            JSON.stringify({
+              mchid: "1900007291",
+              appid: "wx2421b1c4370ec43b",
+              out_trade_no: "m5_0123456789abcdef0123456789abcdef",
+              transaction_id: "4200000000000000000000000001",
+              trade_state: "SUCCESS",
+              success_time: "2029-03-18T10:00:00+08:00",
+              amount: { total: 99, currency: "CNY" },
+            }),
+          );
+        }
+        return signedReply(
+          200,
+          JSON.stringify({
+            out_trade_no: "m5_0123456789abcdef0123456789abcdef",
+            out_refund_no: "r5_0123456789abcdef0123456789abcdef",
+            refund_id: "5000000000000000000000000001",
+            status: "SUCCESS",
+            success_time: "2029-03-18T10:00:00+08:00",
+            amount: { refund: 99, total: 99, currency: "CNY" },
+          }),
+        );
+      },
+    });
+    await expect(client.queryOrder("m5_0123456789abcdef0123456789abcdef")).resolves.toMatchObject({
+      tradeState: "SUCCESS",
+      amountFen: 99,
+      currency: "CNY",
+    });
+    await expect(client.queryRefund("r5_0123456789abcdef0123456789abcdef")).resolves.toMatchObject({
+      status: "SUCCESS",
+      amountFen: 99,
+      totalFen: 99,
+    });
+
+    const rejected = new WechatPayV3Client(protocol(), {
+      async send() {
+        return signedReply(400, '{"code":"PARAM_ERROR"}');
+      },
+    });
+    await expect(rejected.queryOrder("m5_0123456789abcdef0123456789abcdef")).rejects.toMatchObject({
+      code: "PROVIDER_REJECTED",
+    });
+    const malformed = new WechatPayV3Client(protocol(), {
+      async send() {
+        return signedReply(200, "[]");
+      },
+    });
+    await expect(
+      malformed.queryRefund("r5_0123456789abcdef0123456789abcdef"),
+    ).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+
+    const impossibleStatus = new WechatPayV3Client(protocol(), {
+      async send() {
+        return { status: 99, headers: {} as WechatPaySignatureHeaders, rawBody: "{}" };
+      },
+    });
+    await expect(
+      impossibleStatus.queryOrder("m5_0123456789abcdef0123456789abcdef"),
+    ).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+  });
+
   it("requires a non-loopback HTTPS callback and constructs a full-refund request", async () => {
     const requests: WechatPayHttpRequest[] = [];
     const client = new WechatPayV3Client(protocol(), {
@@ -325,6 +636,20 @@ describe("WeChat Pay API v3 protocol", () => {
       out_refund_no: "r5_0123456789abcdef0123456789abcdef",
       amount: { refund: 99, total: 99, currency: "CNY" },
     });
+    expect(
+      parseWechatPayRefundNotice(
+        JSON.stringify({
+          out_trade_no: "m5_0123456789abcdef0123456789abcdef",
+          out_refund_no: "r5_0123456789abcdef0123456789abcdef",
+          refund_id: "5000000000000000000000000001",
+          status: "SUCCESS",
+          amount: { refund: 99, total: 99, currency: "CNY" },
+        }),
+      ),
+    ).toMatchObject({
+      merchantRefundNo: "r5_0123456789abcdef0123456789abcdef",
+      status: "SUCCESS",
+    });
     await expect(
       client.createRefund({
         merchantOrderNo: "m5_0123456789abcdef0123456789abcdef",
@@ -335,6 +660,109 @@ describe("WeChat Pay API v3 protocol", () => {
         notifyUrl: "https://127.0.0.1/notify",
       }),
     ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    await expect(
+      client.createJsapiPrepay({
+        merchantOrderNo: "m5_0123456789abcdef0123456789abcdef",
+        payerOpenId: "short",
+        amountFen: 99,
+        notifyUrl: "https://payments.example.edu/notify",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    await expect(
+      client.createJsapiPrepay({
+        merchantOrderNo: "m5_0123456789abcdef0123456789abcdef",
+        payerOpenId: "oUpF8uMuAJO_M2pxb1Q9zNjWeS6o",
+        amountFen: 98 as 99,
+        notifyUrl: "http://payments.example.edu/notify",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+  });
+
+  it("enforces strict notice and intent matching for transactions and refunds", () => {
+    const transaction = JSON.stringify({
+      mchid: "1900007291",
+      appid: "wx2421b1c4370ec43b",
+      out_trade_no: "m5_0123456789abcdef",
+      trade_state: "SUCCESS",
+      amount: { total: 98, currency: "CNY" },
+    });
+    expect(() =>
+      parseWechatPayTransaction(transaction, {
+        merchantOrderNo: "m5_0123456789abcdef",
+        merchantId: "1900007291",
+        appId: "wx2421b1c4370ec43b",
+        amountFen: 99,
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_PROVIDER_RESPONSE" }));
+    expect(() =>
+      parseWechatPayTransactionNotice(
+        JSON.stringify({
+          mchid: "1900007291",
+          appid: "wx2421b1c4370ec43b",
+          out_trade_no: "m5_0123456789abcdef",
+          trade_state: "UNKNOWN",
+          amount: { total: 99, currency: "CNY" },
+        }),
+        { merchantId: "1900007291", appId: "wx2421b1c4370ec43b" },
+      ),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_PROVIDER_RESPONSE" }));
+    expect(() =>
+      parseWechatPayRefund(
+        JSON.stringify({
+          out_trade_no: "m5_0123456789abcdef",
+          out_refund_no: "r5_0123456789abcdef",
+          status: "SUCCESS",
+          amount: { refund: 99, total: 98, currency: "CNY" },
+        }),
+        {
+          merchantOrderNo: "m5_0123456789abcdef",
+          merchantRefundNo: "r5_0123456789abcdef",
+          amountFen: 99,
+        },
+      ),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_PROVIDER_RESPONSE" }));
+  });
+
+  it("rejects non-canonical cryptographic, textual, and timestamp encodings", () => {
+    const now = new Date("2029-03-18T02:00:00.000Z");
+    const headers = signPlatformMessage(
+      String(Math.floor(now.getTime() / 1_000)),
+      "encodingNonce000000000000000001",
+      "{}",
+    );
+    expect(() =>
+      protocol().verifySignedMessage({ ...headers, signature: "!!!!" }, "{}", { now }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_RESOURCE" }));
+    expect(() =>
+      protocol().verifySignedMessage({ ...headers, signature: "a" }, "{}", { now }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_RESOURCE" }));
+    const invalidSummaryEnvelope = JSON.stringify({
+      id: "EV-20290318-00000011",
+      create_time: "2029-03-18T10:00:00+08:00",
+      event_type: "TRANSACTION.SUCCESS",
+      resource_type: "encrypt-resource",
+      summary: "x".repeat(257),
+      resource: {},
+    });
+    const invalidSummaryHeaders = signPlatformMessage(
+      String(Math.floor(now.getTime() / 1_000)),
+      "encodingNonce000000000000000002",
+      invalidSummaryEnvelope,
+    );
+    expect(() =>
+      protocol().parseAndVerifyNotification(invalidSummaryHeaders, invalidSummaryEnvelope, { now }),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_RESOURCE" }));
+    expect(() =>
+      parseWechatPayRefundNotice(
+        JSON.stringify({
+          out_trade_no: "m5_0123456789abcdef",
+          out_refund_no: "r5_0123456789abcdef",
+          status: "SUCCESS",
+          success_time: "2029/03/18",
+          amount: { refund: 99, total: 99, currency: "CNY" },
+        }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_RESOURCE" }));
   });
 });
 
@@ -377,4 +805,53 @@ function encryptResource(plaintext: string, associatedData: string) {
     associated_data: associatedData,
     nonce,
   };
+}
+
+function mockHttpsReply(input: {
+  readonly status: number;
+  readonly rawBody: string;
+  readonly headers: WechatPaySignatureHeaders;
+}) {
+  const response = new EventEmitter() as EventEmitter & {
+    statusCode?: number;
+    headers: Record<string, string>;
+    destroy: ReturnType<typeof vi.fn>;
+  };
+  response.statusCode = input.status;
+  response.headers = {
+    "wechatpay-signature": input.headers.signature,
+    "wechatpay-timestamp": input.headers.timestamp,
+    "wechatpay-nonce": input.headers.nonce,
+    "wechatpay-serial": input.headers.serial,
+    ...(input.headers.signatureType === undefined
+      ? {}
+      : { "wechatpay-signature-type": input.headers.signatureType }),
+  };
+  response.destroy = vi.fn((error?: Error) => {
+    if (error !== undefined) queueMicrotask(() => response.emit("error", error));
+  });
+  const request = new EventEmitter() as EventEmitter & {
+    write: ReturnType<typeof vi.fn>;
+    end: ReturnType<typeof vi.fn>;
+    setTimeout: ReturnType<typeof vi.fn>;
+    destroy: ReturnType<typeof vi.fn>;
+  };
+  request.write = vi.fn();
+  request.setTimeout = vi.fn();
+  request.destroy = vi.fn((error?: Error) => {
+    if (error !== undefined) queueMicrotask(() => request.emit("error", error));
+  });
+  request.end = vi.fn(() => {
+    queueMicrotask(() => {
+      response.emit("data", Buffer.from(input.rawBody, "utf8"));
+      response.emit("end");
+    });
+  });
+  httpsMock.request.mockImplementation(
+    (_options: unknown, callback: (value: typeof response) => void) => {
+      callback(response);
+      return request;
+    },
+  );
+  return { request, destroy: response.destroy };
 }
