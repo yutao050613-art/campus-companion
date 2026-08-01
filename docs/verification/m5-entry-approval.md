@@ -64,4 +64,3 @@ Machine-readable status:
 M5 must pause after local and protected-CI evidence. It cannot be marked PASS and M6 cannot start
 until test-merchant signing, verified response handling, callback decryption, order query, refund,
 reconciliation, duplicate/late notification handling, and failure drills have auditable evidence.
-

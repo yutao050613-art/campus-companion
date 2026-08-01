@@ -47,4 +47,3 @@
   unless every required credential and verifier is configured.
 - Sensitive configuration is referenced by environment/secret-manager handles. It is never stored
   in source control, verification baselines, test snapshots, or CI artifacts.
-
