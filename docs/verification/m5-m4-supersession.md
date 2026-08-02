@@ -21,6 +21,7 @@ M5 迁移误报为历史篡改。
 | `apps/api/src/app.module.ts` | 注册关闭默认值的回调控制器与服务。 |
 | `apps/api/src/payments/payments.service.ts` | 追加两段式事件入库、幂等和对账隔离逻辑。 |
 | `apps/worker/src/payment-refund.ts` | 改为复用同一事务性退款恢复状态机，防止模拟退款与经验证微信退款回调分叉。 |
+| `apps/worker/test/native-m4-payment-refund.e2e.test.ts` | 将支付超时/退款测试的模拟时钟设为近未来，避免固定历史日期越过后违反既有时间约束；保留 20 轮、退款重试与人工复核断言。 |
 | `docs/api/openapi.yaml` | 补充已实现的微信回调、退款、举报、拉黑和受 CSRF/TOTP 会话保护的安全审核接口。 |
 | `package.json` | 将 M5 验证器纳入完整质量门禁，但不改变既有 M0—M4 门禁顺序。 |
 | `tools/verify-m4.ps1` | 读取本受限清单，保留历史 M4 不可变迁移检查。 |

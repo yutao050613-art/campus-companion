@@ -18,7 +18,10 @@ import { PrismaPaymentRefundRepository } from "../src/payment-refund";
 
 const runNative = process.env["NATIVE_POSTGRES_TESTS"] === "true";
 const prisma = createPrismaClient();
-const now = new Date("2026-08-01T12:00:00.000Z");
+// Run the expiry sweep against a near-future simulated clock. All fixture rows
+// retain their normal database creation timestamps, which stay before the
+// simulated deadlines regardless of the calendar date on which CI runs.
+const now = new Date(Date.now() + 60 * 60_000);
 const ids = {
   campus: "41000000-0000-4000-8000-000000000001",
   policy: "41000000-0000-4000-8000-000000000002",

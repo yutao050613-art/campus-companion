@@ -200,6 +200,7 @@ if (Test-Path -LiteralPath $m5Migration -PathType Leaf) {
     'apps/api/src/app.module.ts',
     'apps/api/src/payments/payments.service.ts',
     'apps/worker/src/payment-refund.ts',
+    'apps/worker/test/native-m4-payment-refund.e2e.test.ts',
     'docs/api/openapi.yaml',
     'package.json',
     'tools/verify-m4.ps1'

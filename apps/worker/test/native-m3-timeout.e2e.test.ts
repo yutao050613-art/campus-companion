@@ -95,6 +95,9 @@ describe.runIf(runNative)("M3 native formation deadline worker", () => {
         sequence: 1,
         memberSnapshotHash: "d".repeat(64),
         state: RoundState.CONFIRMING,
+        // Keep fixture creation time before its simulated deadline. This test uses a fixed
+        // historical clock so it stays valid after that calendar date has passed.
+        createdAt: new Date("2026-08-01T11:00:00.000Z"),
         confirmBy: new Date("2026-08-01T11:59:00.000Z"),
         contactPolicyVersionId: ids.policy,
       },
@@ -107,6 +110,7 @@ describe.runIf(runNative)("M3 native formation deadline worker", () => {
         sequence: 1,
         memberSnapshotHash: "e".repeat(64),
         state: RoundState.PAYING,
+        createdAt: new Date("2026-08-01T11:00:00.000Z"),
         confirmBy: new Date("2026-08-01T11:59:00.000Z"),
         payBy: new Date("2026-08-01T12:05:00.000Z"),
         contactPolicyVersionId: ids.policy,
@@ -122,6 +126,7 @@ describe.runIf(runNative)("M3 native formation deadline worker", () => {
         roundId: ids.confirmingRound,
         userId: ids.userA,
         policyVersionId: ids.policy,
+        grantedAt: new Date("2026-08-01T11:01:00.000Z"),
       },
     });
     await prisma.outboxEvent.create({
@@ -132,6 +137,7 @@ describe.runIf(runNative)("M3 native formation deadline worker", () => {
         eventType: "FormationConfirmationTimeout",
         payload: { groupId: ids.confirmingGroup },
         availableAt: new Date("2026-08-01T11:59:00.000Z"),
+        createdAt: new Date("2026-08-01T11:01:00.000Z"),
       },
     });
   });
