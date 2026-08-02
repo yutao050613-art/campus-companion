@@ -9,6 +9,13 @@ const EnvironmentSchema = z.object({
   DATABASE_URL: z.string().min(1).optional(),
   WECHAT_AUTH_PROVIDER: z.enum(["mock", "wechat"]).default("mock"),
   PAYMENT_PROVIDER: z.enum(["mock", "wechat"]).default("mock"),
+  WECHAT_PAY_CALLBACKS_ENABLED: z.enum(["true", "false"]).default("false"),
+  WECHAT_PAY_MERCHANT_ID: z.string().default(""),
+  WECHAT_PAY_APP_ID: z.string().default(""),
+  WECHAT_PAY_MERCHANT_CERTIFICATE_SERIAL: z.string().default(""),
+  WECHAT_PAY_MERCHANT_PRIVATE_KEY_PEM: z.string().default(""),
+  WECHAT_PAY_API_V3_KEY: z.string().default(""),
+  WECHAT_PAY_VERIFIER_PUBLIC_KEYS_JSON: z.string().default(""),
   WECHAT_MOCK_DEFAULT_CAMPUS_ID: z.string().uuid().optional(),
   WECHAT_MOCK_SIGNING_SECRET: z.string().default(""),
   AUTH_ACCESS_TOKEN_SECRET: z.string().default(""),
@@ -29,6 +36,7 @@ export interface AppConfig {
   readonly databaseUrl?: string;
   readonly wechatAuthProvider: "mock" | "wechat";
   readonly paymentProvider: "mock" | "wechat";
+  readonly wechatPayCallbacks?: WechatPayCallbackConfig;
   readonly wechatMockDefaultCampusId?: string;
   readonly wechatMockSigningSecret: string;
   readonly accessTokenSecret: string;
@@ -39,6 +47,15 @@ export interface AppConfig {
   readonly localObjectStoreRoot: string;
   readonly publicApiBaseUrl: string;
   readonly adminTrustedOrigins: ReadonlySet<string>;
+}
+
+export interface WechatPayCallbackConfig {
+  readonly merchantId: string;
+  readonly appId: string;
+  readonly merchantCertificateSerial: string;
+  readonly merchantPrivateKeyPem: string;
+  readonly apiV3Key: string;
+  readonly verifierPublicKeys: ReadonlyMap<string, string>;
 }
 
 export const APP_CONFIG = Symbol("APP_CONFIG");
@@ -55,6 +72,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
   if (parsed.PAYMENT_PROVIDER !== "mock") {
     throw new Error("WeChat Pay is not configured until M5");
   }
+  const wechatPayCallbacks = loadWechatPayCallbackConfig(parsed);
   if (productionLike) {
     for (const [name, value] of [
       ["AUTH_ACCESS_TOKEN_SECRET", parsed.AUTH_ACCESS_TOKEN_SECRET],
@@ -96,6 +114,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     ...(parsed.DATABASE_URL === undefined ? {} : { databaseUrl: parsed.DATABASE_URL }),
     wechatAuthProvider: parsed.WECHAT_AUTH_PROVIDER,
     paymentProvider: parsed.PAYMENT_PROVIDER,
+    ...(wechatPayCallbacks === undefined ? {} : { wechatPayCallbacks }),
     ...(parsed.WECHAT_MOCK_DEFAULT_CAMPUS_ID === undefined
       ? {}
       : { wechatMockDefaultCampusId: parsed.WECHAT_MOCK_DEFAULT_CAMPUS_ID }),
@@ -108,5 +127,48 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     localObjectStoreRoot,
     publicApiBaseUrl: parsed.PUBLIC_API_BASE_URL,
     adminTrustedOrigins: trustedOrigins,
+  };
+}
+
+function loadWechatPayCallbackConfig(
+  parsed: z.infer<typeof EnvironmentSchema>,
+): WechatPayCallbackConfig | undefined {
+  if (parsed.WECHAT_PAY_CALLBACKS_ENABLED !== "true") return undefined;
+  const required = [
+    ["WECHAT_PAY_MERCHANT_ID", parsed.WECHAT_PAY_MERCHANT_ID],
+    ["WECHAT_PAY_APP_ID", parsed.WECHAT_PAY_APP_ID],
+    ["WECHAT_PAY_MERCHANT_CERTIFICATE_SERIAL", parsed.WECHAT_PAY_MERCHANT_CERTIFICATE_SERIAL],
+    ["WECHAT_PAY_MERCHANT_PRIVATE_KEY_PEM", parsed.WECHAT_PAY_MERCHANT_PRIVATE_KEY_PEM],
+    ["WECHAT_PAY_API_V3_KEY", parsed.WECHAT_PAY_API_V3_KEY],
+    ["WECHAT_PAY_VERIFIER_PUBLIC_KEYS_JSON", parsed.WECHAT_PAY_VERIFIER_PUBLIC_KEYS_JSON],
+  ] as const;
+  for (const [name, value] of required) {
+    if (value.trim() === "") throw new Error(`${name} is required when callbacks are enabled`);
+  }
+  let rawKeys: unknown;
+  try {
+    rawKeys = JSON.parse(parsed.WECHAT_PAY_VERIFIER_PUBLIC_KEYS_JSON);
+  } catch {
+    throw new Error("WECHAT_PAY_VERIFIER_PUBLIC_KEYS_JSON must be a JSON object");
+  }
+  if (typeof rawKeys !== "object" || rawKeys === null || Array.isArray(rawKeys)) {
+    throw new Error("WECHAT_PAY_VERIFIER_PUBLIC_KEYS_JSON must be a JSON object");
+  }
+  const entries = Object.entries(rawKeys);
+  if (
+    entries.length < 1 ||
+    entries.length > 4 ||
+    entries.some(([, value]) => typeof value !== "string")
+  ) {
+    throw new Error("WECHAT_PAY_VERIFIER_PUBLIC_KEYS_JSON must contain one to four PEM values");
+  }
+  const publicKeys = new Map(entries as [string, string][]);
+  return {
+    merchantId: parsed.WECHAT_PAY_MERCHANT_ID,
+    appId: parsed.WECHAT_PAY_APP_ID,
+    merchantCertificateSerial: parsed.WECHAT_PAY_MERCHANT_CERTIFICATE_SERIAL,
+    merchantPrivateKeyPem: parsed.WECHAT_PAY_MERCHANT_PRIVATE_KEY_PEM,
+    apiV3Key: parsed.WECHAT_PAY_API_V3_KEY,
+    verifierPublicKeys: publicKeys,
   };
 }

@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { AdminAuthController } from "./admin/admin-auth.controller";
 import { AdminAuthService } from "./admin/admin-auth.service";
+import { AdminTrustController } from "./admin/admin-trust.controller";
+import { AdminTrustService } from "./admin/admin-trust.service";
 import {
   AdminVerificationAssetController,
   AdminVerificationController,
@@ -23,6 +25,11 @@ import { IdempotencyService } from "./m2/idempotency.service";
 import { dataProtectorProvider, verificationObjectStoreProvider } from "./m2/providers";
 import { PaymentsController } from "./payments/payments.controller";
 import { PaymentsService } from "./payments/payments.service";
+import { RefundsController } from "./payments/refunds.controller";
+import { WechatCallbackController } from "./payments/wechat-callback.controller";
+import { WechatCallbackService } from "./payments/wechat-callback.service";
+import { TrustController } from "./trust/trust.controller";
+import { TrustService } from "./trust/trust.service";
 import {
   MockVerificationUploadController,
   VerificationController,
@@ -39,12 +46,16 @@ import { VerificationService } from "./verification/verification.service";
     AdminAuthController,
     AdminVerificationController,
     AdminVerificationAssetController,
+    AdminTrustController,
     CatalogController,
     AdminCatalogController,
     DemandController,
     GroupController,
     FormationController,
     PaymentsController,
+    RefundsController,
+    WechatCallbackController,
+    TrustController,
   ],
   providers: [
     {
@@ -57,10 +68,13 @@ import { VerificationService } from "./verification/verification.service";
     VerificationService,
     AdminAuthService,
     AdminVerificationService,
+    AdminTrustService,
     CatalogService,
     AdminCatalogService,
     GroupingService,
     PaymentsService,
+    WechatCallbackService,
+    TrustService,
     dataProtectorProvider,
     verificationObjectStoreProvider,
   ],

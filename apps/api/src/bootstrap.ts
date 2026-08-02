@@ -35,6 +35,7 @@ export async function createApp(
     abortOnError: false,
     bufferLogs: false,
     logger: false,
+    rawBody: true,
   });
 
   adapter.getInstance().addHook("onRequest", (request, reply, done) => {

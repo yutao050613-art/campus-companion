@@ -17,6 +17,22 @@ export const expectedDatabaseObjectInventory = {
     "GroupMember_campus_demand_fkey",
     "GroupMember_campus_group_fkey",
     "GroupMember_campus_user_fkey",
+    "PaymentTransaction_providerEventId_fkey",
+    "ProviderEvent_amount_check",
+    "ProviderEvent_campusId_fkey",
+    "ProviderEvent_digest_check",
+    "ProviderEvent_orderId_fkey",
+    "ProviderEvent_provider_check",
+    "ProviderEvent_reference_check",
+    "ProviderEvent_refundId_fkey",
+    "ProviderEvent_status_time_check",
+    "ReconciliationException_campusId_fkey",
+    "ReconciliationException_evidence_check",
+    "ReconciliationException_lifecycle_check",
+    "ReconciliationException_orderId_fkey",
+    "ReconciliationException_providerEventId_fkey",
+    "ReconciliationException_refundId_fkey",
+    "Refund_providerEventId_fkey",
     "ServiceOrder_campusId_fkey",
     "ServiceOrder_campus_round_fkey",
     "ServiceOrder_campus_user_fkey",
@@ -31,11 +47,19 @@ export const expectedDatabaseObjectInventory = {
     "enforce_group_seat_limit",
     "enforce_m4_contact_unlock_guard",
     "enforce_m4_service_order_guard",
+    "enforce_m5_payment_transaction_guard",
+    "enforce_m5_provider_event_guard",
+    "enforce_m5_reconciliation_exception_guard",
+    "enforce_m5_refund_guard",
     "prevent_verification_asset_grant_reuse",
   ],
   triggers: [
     "ContactUnlock_m4_delivery_guard",
     "GroupMember_group_seat_limit_trigger",
+    "PaymentTransaction_m5_wechat_guard",
+    "ProviderEvent_m5_guard",
+    "ReconciliationException_m5_guard",
+    "Refund_m5_provider_event_guard",
     "ServiceOrder_m4_paying_guard",
     "VerificationAssetAccessGrant_usedAt_immutable_trigger",
   ],
@@ -62,10 +86,21 @@ export const databaseObjectInventorySql = {
          OR constraint_object.conname LIKE 'ServiceOrder_campus_%_fkey'
          OR constraint_object.conname LIKE 'StudentVerification_%_check'
          OR constraint_object.conname LIKE 'ContactAccessLog_%_check'
+         OR constraint_object.conname LIKE 'ProviderEvent_%_check'
+         OR constraint_object.conname LIKE 'ReconciliationException_%_check'
          OR constraint_object.conname = 'VerificationAssetAccessGrant_lifetime_check'
          OR constraint_object.conname IN (
            'VerificationAssetAccessGrant_exact_asset_fkey',
-           'VerificationAssetAccessGrant_verificationAssetId_fkey'
+           'VerificationAssetAccessGrant_verificationAssetId_fkey',
+           'PaymentTransaction_providerEventId_fkey',
+           'ProviderEvent_campusId_fkey',
+           'ProviderEvent_orderId_fkey',
+           'ProviderEvent_refundId_fkey',
+           'ReconciliationException_campusId_fkey',
+           'ReconciliationException_orderId_fkey',
+           'ReconciliationException_providerEventId_fkey',
+           'ReconciliationException_refundId_fkey',
+           'Refund_providerEventId_fkey'
          )
        )
      ORDER BY constraint_object.conname
@@ -80,6 +115,7 @@ export const databaseObjectInventorySql = {
          function_object.proname LIKE '%group_seat%'
          OR function_object.proname LIKE '%verification_asset%'
          OR function_object.proname LIKE '%m4_%'
+         OR function_object.proname LIKE '%m5_%'
        )
      ORDER BY function_object.proname
   `,
@@ -94,6 +130,7 @@ export const databaseObjectInventorySql = {
          trigger_object.tgname LIKE 'GroupMember_%'
          OR trigger_object.tgname LIKE 'VerificationAssetAccessGrant_%'
          OR trigger_object.tgname LIKE '%_m4_%'
+         OR trigger_object.tgname LIKE '%_m5_%'
        )
      ORDER BY trigger_object.tgname
   `,

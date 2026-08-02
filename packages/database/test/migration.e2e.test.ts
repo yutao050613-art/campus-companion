@@ -30,6 +30,11 @@ const ids = {
   memberB: "00000000-0000-0000-0000-000000000702",
   round: "00000000-0000-0000-0000-000000000801",
   order: "00000000-0000-0000-0000-000000000901",
+  paymentOrder: "00000000-0000-0000-0000-000000000902",
+  paymentEvent: "00000000-0000-0000-0000-000000000903",
+  unboundEvent: "00000000-0000-0000-0000-000000000904",
+  refund: "00000000-0000-0000-0000-000000000905",
+  refundEvent: "00000000-0000-0000-0000-000000000906",
   contactPolicy: "00000000-0000-0000-0000-00000000c001",
   accessLogA: "00000000-0000-0000-0000-000000000a01",
   accessLogB: "00000000-0000-0000-0000-000000000a02",
@@ -55,7 +60,7 @@ describe("PostgreSQL migration chain", () => {
   });
 
   it("applies to an empty PostgreSQL engine and enforces core guards", async () => {
-    expect(migrations).toHaveLength(3);
+    expect(migrations).toHaveLength(4);
     await database.exec(`
       INSERT INTO "Campus" ("id", "name", "updatedAt") VALUES
         ('${ids.campus}', 'Campus A', NOW()),
@@ -147,7 +152,7 @@ describe("PostgreSQL migration chain", () => {
           "id", "campusId", "roundId", "userId", "merchantOrderNo", "amountFen",
           "currency", "pricingVersion", "expiresAt", "updatedAt"
         ) VALUES (
-          '00000000-0000-0000-0000-000000000902', '${ids.campus}', '${ids.round}', '${ids.userA}',
+          '${ids.paymentOrder}', '${ids.campus}', '${ids.round}', '${ids.userA}',
           'm4-wrong-deadline', 99, 'CNY', 'm4-test', NOW() + INTERVAL '4 minutes', NOW()
         );
       `),
@@ -157,7 +162,7 @@ describe("PostgreSQL migration chain", () => {
         "id", "campusId", "roundId", "userId", "merchantOrderNo", "amountFen",
         "currency", "pricingVersion", "expiresAt", "updatedAt"
       ) SELECT
-        '00000000-0000-0000-0000-000000000902', '${ids.campus}', '${ids.round}', '${ids.userA}',
+        '${ids.paymentOrder}', '${ids.campus}', '${ids.round}', '${ids.userA}',
         'm4-correct-deadline', 99, 'CNY', 'm4-test', "payBy", NOW()
       FROM "FormationRound" WHERE "id" = '${ids.round}';
       UPDATE "TravelDemand" SET "seatCount" = 1 WHERE "id" = '${ids.demandB}';
@@ -313,6 +318,144 @@ describe("PostgreSQL migration chain", () => {
     }
   });
 
+  it("records and applies WeChat evidence exactly once without crossing campus boundaries", async () => {
+    const paymentDigest = "a".repeat(64);
+    const refundDigest = "b".repeat(64);
+    const unknownDigest = "c".repeat(64);
+
+    await database.exec(`
+      INSERT INTO "ProviderEvent" (
+        "id", "campusId", "provider", "eventId", "eventType", "verifierKeyId", "rawDigest",
+        "merchantOrderNo", "providerTransactionId", "amountFen", "currency", "orderId"
+      ) VALUES (
+        '${ids.paymentEvent}', '${ids.campus}', 'WECHAT_PAY', 'evt-payment-1', 'TRANSACTION.SUCCESS',
+        'wechat-key-1', '${paymentDigest}', 'm4-correct-deadline', 'wx-transaction-1', 99, 'CNY', '${ids.paymentOrder}'
+      );
+    `);
+
+    await expect(
+      database.exec(`
+        INSERT INTO "ProviderEvent" (
+          "id", "provider", "eventId", "eventType", "verifierKeyId", "rawDigest", "merchantOrderNo", "amountFen", "currency"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000907', 'WECHAT_PAY', 'evt-payment-1', 'TRANSACTION.SUCCESS',
+          'wechat-key-1', '${paymentDigest}', 'm4-correct-deadline', 99, 'CNY'
+        );
+      `),
+    ).rejects.toThrow(/unique|ProviderEvent_provider_eventId_key|23505/i);
+
+    await expect(
+      database.exec(`
+        UPDATE "ProviderEvent"
+           SET "rawDigest" = '${"d".repeat(64)}'
+         WHERE "id" = '${ids.paymentEvent}';
+      `),
+    ).rejects.toThrow(/immutable|23514/i);
+
+    await expect(
+      database.exec(`
+        UPDATE "ProviderEvent"
+           SET "status" = 'APPLIED', "appliedAt" = NOW()
+         WHERE "id" = '${ids.paymentEvent}';
+      `),
+    ).rejects.toThrow(/matching terminal internal fact|23514/i);
+
+    await expect(
+      database.exec(`
+        INSERT INTO "PaymentTransaction" (
+          "id", "campusId", "orderId", "provider", "providerTransactionId", "status", "rawDigest", "updatedAt"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000912', '${ids.campus}', '${ids.paymentOrder}', 'WECHAT_PAY',
+          'wx-transaction-forged', 'SUCCEEDED', '${paymentDigest}', NOW()
+        );
+      `),
+    ).rejects.toThrow(/requires a provider event|23514/i);
+
+    await database.exec(`
+      INSERT INTO "PaymentTransaction" (
+        "id", "campusId", "orderId", "provider", "providerTransactionId", "status", "rawDigest",
+        "providerEventId", "occurredAt", "updatedAt"
+      ) VALUES (
+        '00000000-0000-0000-0000-000000000908', '${ids.campus}', '${ids.paymentOrder}', 'WECHAT_PAY',
+        'wx-transaction-1', 'SUCCEEDED', '${paymentDigest}', '${ids.paymentEvent}', NOW(), NOW()
+      );
+      UPDATE "ProviderEvent"
+         SET "status" = 'APPLIED', "appliedAt" = NOW()
+       WHERE "id" = '${ids.paymentEvent}';
+    `);
+
+    await expect(
+      database.exec(`
+        INSERT INTO "ProviderEvent" (
+          "id", "campusId", "provider", "eventId", "eventType", "verifierKeyId", "rawDigest",
+          "merchantOrderNo", "providerTransactionId", "amountFen", "currency", "orderId"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000909', '${ids.otherCampus}', 'WECHAT_PAY', 'evt-cross-campus',
+          'TRANSACTION.SUCCESS', 'wechat-key-1', '${paymentDigest}', 'm4-correct-deadline',
+          'wx-transaction-cross-campus', 99, 'CNY', '${ids.paymentOrder}'
+        );
+      `),
+    ).rejects.toThrow(/campus and merchant order number|23514/i);
+
+    await database.exec(`
+      INSERT INTO "ProviderEvent" (
+        "id", "provider", "eventId", "eventType", "verifierKeyId", "rawDigest", "merchantOrderNo", "amountFen", "currency", "status"
+      ) VALUES (
+        '${ids.unboundEvent}', 'WECHAT_PAY', 'evt-unknown-order', 'TRANSACTION.SUCCESS', 'wechat-key-1',
+        '${unknownDigest}', 'unknown-merchant-order', 99, 'CNY', 'REVIEW_REQUIRED'
+      );
+      INSERT INTO "ReconciliationException" (
+        "id", "providerEventId", "code", "observedDigest"
+      ) VALUES (
+        '00000000-0000-0000-0000-000000000910', '${ids.unboundEvent}',
+        'UNKNOWN_MERCHANT_ORDER', '${unknownDigest}'
+      );
+    `);
+
+    await expect(
+      database.exec(`
+        UPDATE "ProviderEvent"
+           SET "status" = 'APPLIED', "appliedAt" = NOW()
+         WHERE "id" = '${ids.unboundEvent}';
+      `),
+    ).rejects.toThrow(/terminal state|tenant-bound order|23514/i);
+
+    await expect(
+      database.exec(`
+        INSERT INTO "ReconciliationException" (
+          "id", "campusId", "providerEventId", "code", "observedDigest"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000911', '${ids.otherCampus}', '${ids.paymentEvent}',
+          'CROSS_CAMPUS_EVENT', '${paymentDigest}'
+        );
+      `),
+    ).rejects.toThrow(/tenant boundary|23514/i);
+
+    await database.exec(`
+      INSERT INTO "Refund" (
+        "id", "campusId", "orderId", "merchantRefundNo", "amountFen", "reason", "status", "updatedAt"
+      ) VALUES (
+        '${ids.refund}', '${ids.campus}', '${ids.paymentOrder}', 'm5-refund-1', 99,
+        'DUPLICATE_CHARGE', 'REQUESTED', NOW()
+      );
+      INSERT INTO "ProviderEvent" (
+        "id", "campusId", "provider", "eventId", "eventType", "verifierKeyId", "rawDigest",
+        "merchantOrderNo", "merchantRefundNo", "providerRefundId", "amountFen", "currency", "orderId", "refundId"
+      ) VALUES (
+        '${ids.refundEvent}', '${ids.campus}', 'WECHAT_PAY', 'evt-refund-1', 'REFUND.SUCCESS',
+        'wechat-key-1', '${refundDigest}', 'm4-correct-deadline', 'm5-refund-1',
+        'wx-refund-1', 99, 'CNY', '${ids.paymentOrder}', '${ids.refund}'
+      );
+      UPDATE "Refund"
+         SET "providerEventId" = '${ids.refundEvent}', "providerRefundId" = 'wx-refund-1',
+             "status" = 'REFUNDED', "completedAt" = NOW(), "updatedAt" = NOW()
+       WHERE "id" = '${ids.refund}';
+      UPDATE "ProviderEvent"
+         SET "status" = 'APPLIED', "appliedAt" = NOW()
+       WHERE "id" = '${ids.refundEvent}';
+    `);
+  });
+
   it("rolls a transaction back without leaving partial tenant data", async () => {
     const temporaryCampus = "00000000-0000-0000-0000-000000000099";
     await database.exec("BEGIN");
@@ -349,6 +492,89 @@ describe("PostgreSQL migration chain", () => {
       expect(policy.rows[0]?.contentDigest).toBe(
         "46035097382e2f7435307106825cc0f2cc2a94a98e767b597a48488ee73918a7",
       );
+    } finally {
+      await snapshot.close();
+    }
+  });
+
+  it("applies M5 additively to an M4 snapshot and preserves historical mock refunds", async () => {
+    const snapshot = new PGlite();
+    try {
+      const [m1, m2, m4, m5] = migrations;
+      if (m1 === undefined || m2 === undefined || m4 === undefined || m5 === undefined) {
+        throw new Error("migration chain is incomplete");
+      }
+      await snapshot.exec(m1);
+      await snapshot.exec(m2);
+      await snapshot.exec(m4);
+      await snapshot.exec(`
+        INSERT INTO "Campus" ("id", "name", "updatedAt") VALUES
+          ('00000000-0000-0000-0000-000000000f01', 'M4 Snapshot Campus', NOW());
+        INSERT INTO "User" ("id", "campusId", "wechatSubject", "displayName", "updatedAt") VALUES
+          ('00000000-0000-0000-0000-000000000f02', '00000000-0000-0000-0000-000000000f01', 'm4-snapshot-user', 'Snapshot', NOW());
+        INSERT INTO "Place" ("id", "campusId", "name", "type", "updatedAt") VALUES
+          ('00000000-0000-0000-0000-000000000f03', '00000000-0000-0000-0000-000000000f01', 'Snapshot Gate', 'CAMPUS_GATE', NOW()),
+          ('00000000-0000-0000-0000-000000000f04', '00000000-0000-0000-0000-000000000f01', 'Snapshot Station', 'TRANSIT_HUB', NOW());
+        INSERT INTO "Route" ("id", "campusId", "originId", "destinationId", "updatedAt") VALUES
+          ('00000000-0000-0000-0000-000000000f05', '00000000-0000-0000-0000-000000000f01',
+           '00000000-0000-0000-0000-000000000f03', '00000000-0000-0000-0000-000000000f04', NOW());
+        INSERT INTO "TravelDemand" (
+          "id", "userId", "campusId", "routeId", "windowStart", "windowEnd", "seatCount",
+          "luggageSize", "genderPreference", "updatedAt"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000f06', '00000000-0000-0000-0000-000000000f02',
+          '00000000-0000-0000-0000-000000000f01', '00000000-0000-0000-0000-000000000f05',
+          NOW() + INTERVAL '1 hour', NOW() + INTERVAL '90 minutes', 1, 'NONE', 'ANY', NOW()
+        );
+        INSERT INTO "CompanionGroup" (
+          "id", "campusId", "routeId", "windowStart", "windowEnd", "updatedAt"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000f07', '00000000-0000-0000-0000-000000000f01',
+          '00000000-0000-0000-0000-000000000f05', NOW() + INTERVAL '1 hour', NOW() + INTERVAL '90 minutes', NOW()
+        );
+        INSERT INTO "GroupMember" (
+          "id", "campusId", "groupId", "userId", "demandId", "seatCount", "updatedAt"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000f08', '00000000-0000-0000-0000-000000000f01',
+          '00000000-0000-0000-0000-000000000f07', '00000000-0000-0000-0000-000000000f02',
+          '00000000-0000-0000-0000-000000000f06', 1, NOW()
+        );
+        UPDATE "CompanionGroup" SET "state" = 'PAYING' WHERE "id" = '00000000-0000-0000-0000-000000000f07';
+        UPDATE "GroupMember" SET "status" = 'PAYMENT_PENDING' WHERE "id" = '00000000-0000-0000-0000-000000000f08';
+        INSERT INTO "FormationRound" (
+          "id", "campusId", "groupId", "sequence", "memberSnapshotHash", "contactPolicyVersionId",
+          "state", "confirmBy", "payBy", "updatedAt"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000f09', '00000000-0000-0000-0000-000000000f01',
+          '00000000-0000-0000-0000-000000000f07', 1,
+          'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+          '00000000-0000-0000-0000-00000000c001', 'PAYING', NOW() + INTERVAL '4 minutes',
+          NOW() + INTERVAL '5 minutes', NOW()
+        );
+        INSERT INTO "ServiceOrder" (
+          "id", "campusId", "roundId", "userId", "merchantOrderNo", "amountFen", "currency",
+          "pricingVersion", "expiresAt", "updatedAt"
+        ) SELECT
+          '00000000-0000-0000-0000-000000000f10', '00000000-0000-0000-0000-000000000f01',
+          '00000000-0000-0000-0000-000000000f09', '00000000-0000-0000-0000-000000000f02',
+          'm4-snapshot-order', 99, 'CNY', 'm4', "payBy", NOW()
+        FROM "FormationRound" WHERE "id" = '00000000-0000-0000-0000-000000000f09';
+        INSERT INTO "Refund" (
+          "id", "campusId", "orderId", "amountFen", "reason", "status", "updatedAt"
+        ) VALUES (
+          '00000000-0000-0000-0000-000000000f11', '00000000-0000-0000-0000-000000000f01',
+          '00000000-0000-0000-0000-000000000f10', 99, 'ROUND_INVALIDATED', 'REQUESTED', NOW()
+        );
+      `);
+      await snapshot.exec(m5);
+      const migrated = await snapshot.query<{ campus: string; merchantRefundNo: string }>(`
+        SELECT campus."name" AS campus, refund."merchantRefundNo" AS "merchantRefundNo"
+          FROM "Refund" refund
+          JOIN "Campus" campus ON campus."id" = refund."campusId"
+         WHERE refund."id" = '00000000-0000-0000-0000-000000000f11'
+      `);
+      expect(migrated.rows[0]?.campus).toBe("M4 Snapshot Campus");
+      expect(migrated.rows[0]?.merchantRefundNo).toBe("legacy_00000000000000000000000000000f11");
     } finally {
       await snapshot.close();
     }

@@ -79,7 +79,12 @@ $payments = Read-Utf8 'packages/payments/src/index.ts'
 foreach ($guard in @('amountFen: 99', 'assertEnabled', 'development', 'test', 'mock_intent_', 'mock_txn_', 'mock_ref_')) {
   Assert-True ($payments -match [regex]::Escape($guard)) "mock gateway guard exists: $guard"
 }
-Assert-True ($payments -notmatch 'wechatpay|api-v3|private.?key') 'M4 payment package contains no real-payment implementation'
+$m5MigrationPath = Join-Path $root 'packages/database/prisma/migrations/20260802000000_m5_provider_event_reconciliation/migration.sql'
+if (Test-Path -LiteralPath $m5MigrationPath -PathType Leaf) {
+  Assert-True ($payments -match 'export \* from "\./wechat-pay-v3"') 'M5 payment protocol export is explicitly enabled after M5 migration'
+} else {
+  Assert-True ($payments -notmatch 'wechatpay|api-v3|private.?key') 'M4 payment package contains no real-payment implementation'
+}
 
 $config = Read-Utf8 'apps/api/src/config.ts'
 Assert-True ($config -match 'mock payment is forbidden outside development and test') 'API fails closed for mock payment outside local environments'
@@ -102,7 +107,12 @@ foreach ($guard in @(
 )) {
   Assert-True ($service -match [regex]::Escape($guard)) "payment delivery guard exists: $guard"
 }
-Assert-True ($service -notmatch 'amountFen:\s*(?:input|body|request)') 'payment amount is not client-owned'
+if (Test-Path -LiteralPath $m5MigrationPath -PathType Leaf) {
+  Assert-True ($service -match 'const PRICE_FEN = 99') 'M4 order price remains server-owned after M5 provider-fact ingestion'
+  Assert-True ($service -notmatch 'createOrder[\s\S]{0,200}amountFen:\s*(?:input|body|request)') 'M4 order creation still accepts no client price'
+} else {
+  Assert-True ($service -notmatch 'amountFen:\s*(?:input|body|request)') 'payment amount is not client-owned'
+}
 Assert-True ($service -notmatch 'console\.(?:log|error|warn)') 'payment service has no unsafe console logging'
 
 $controller = Read-Utf8 'apps/api/src/payments/payments.controller.ts'
@@ -122,8 +132,10 @@ Assert-True ($nativeWorker -match 'attempt < 20') 'native M4 worker repeats time
 Assert-True ($nativeWorker -match 'REFUND_RETRY') 'native M4 worker tests retry/manual-review state'
 
 $worker = Read-Utf8 'apps/worker/src/payment-refund.ts'
+$sharedRefundRecovery = Read-Utf8 'packages/database/src/refund-recovery.ts'
+$refundRecoverySources = "$worker`n$sharedRefundRecovery"
 foreach ($guard in @('PAYMENT_TIMEOUT', 'REFUND_PENDING', 'REFUND_RETRY', 'MockRefundRetryScheduled', 'runSerializableWithRetry')) {
-  Assert-True ($worker -match [regex]::Escape($guard)) "payment refund worker guard exists: $guard"
+  Assert-True ($refundRecoverySources -match [regex]::Escape($guard)) "payment refund worker guard exists: $guard"
 }
 $workerTestConfig = Read-Utf8 'apps/worker/vitest.config.ts'
 Assert-True ($workerTestConfig -match 'fileParallelism: process\.env\["NATIVE_POSTGRES_TESTS"\] !== "true"') 'native worker database test files run serially'
@@ -168,11 +180,49 @@ Assert-True ($nonNativeRunner -match 'NATIVE_REDIS_TESTS: "false"') 'non-native 
 
 $m1Migration = Join-Path $root 'packages/database/prisma/migrations/20260715000000_m1_final_state_candidate/migration.sql'
 $m2Migration = Join-Path $root 'packages/database/prisma/migrations/20260731000000_m2_sensitive_info_policy/migration.sql'
+$m4Migration = Join-Path $root 'packages/database/prisma/migrations/20260801000000_m4_payment_delivery_guards/migration.sql'
 Assert-True ((Get-FileHash -Algorithm SHA256 -LiteralPath $m1Migration).Hash.ToLowerInvariant() -eq '6d893aa089650d72b717546960679aad1f3f61abe8b32ba07ed2a623ad605902') 'released M1 migration remains immutable'
 Assert-True ((Get-FileHash -Algorithm SHA256 -LiteralPath $m2Migration).Hash.ToLowerInvariant() -eq 'fb8e9e49d97db759d8eb441ff2f89e6dd54c13e3a4bb35eab350c4f807e5a681') 'released M2 migration remains immutable'
+Assert-True ((Get-FileHash -Algorithm SHA256 -LiteralPath $m4Migration).Hash.ToLowerInvariant() -eq 'ef82d17ba8831f8be85de1e6d906d2f4c58a8560db6bf4d12c7a9dba6f6949ca') 'released M4 migration remains immutable'
+
+$m5Migration = Join-Path $root 'packages/database/prisma/migrations/20260802000000_m5_provider_event_reconciliation/migration.sql'
+$m5SupersededTargets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+if (Test-Path -LiteralPath $m5Migration -PathType Leaf) {
+  $m5SupersessionPath = Join-Path $root 'docs/verification/m5-m4-supersession.md'
+  Assert-True (Test-Path -LiteralPath $m5SupersessionPath -PathType Leaf) 'M5 supplies an explicit M4 supersession ledger'
+  $expectedM5SupersededTargets = @(
+    'packages/database/prisma/schema.prisma',
+    'packages/database/test/database-object-inventory.ts',
+    'packages/database/test/migration.e2e.test.ts',
+    'packages/payments/src/index.ts',
+    'apps/api/src/config.ts',
+    'apps/api/test/config.test.ts',
+    'apps/api/src/app.module.ts',
+    'apps/api/src/payments/payments.service.ts',
+    'apps/worker/src/payment-refund.ts',
+    'apps/worker/test/native-m4-payment-refund.e2e.test.ts',
+    'docs/api/openapi.yaml',
+    'package.json',
+    'tools/verify-m4.ps1'
+  )
+  if (Test-Path -LiteralPath $m5SupersessionPath -PathType Leaf) {
+    $m5Supersession = Get-Content -LiteralPath $m5SupersessionPath -Raw -Encoding utf8
+    foreach ($target in $expectedM5SupersededTargets) {
+      Assert-True ($m5Supersession -match [regex]::Escape("``$target``")) "M5 supersession ledger names: $target"
+      [void]$m5SupersededTargets.Add($target)
+    }
+    $listedM5SupersededTargets = [regex]::Matches($m5Supersession, '\| `([^`]+)` \|') |
+      ForEach-Object { $_.Groups[1].Value }
+    Assert-True ($listedM5SupersededTargets.Count -eq $expectedM5SupersededTargets.Count) 'M5 supersession ledger has no unreviewed M4 baseline targets'
+    foreach ($target in $listedM5SupersededTargets) {
+      Assert-True ($expectedM5SupersededTargets -contains $target) "M5 supersession target is allow-listed: $target"
+    }
+  }
+}
 
 $baselinePath = Join-Path $root 'docs/verification/m4-baseline.sha256'
 if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
+  Assert-True ((Get-FileHash -Algorithm SHA256 -LiteralPath $baselinePath).Hash.ToLowerInvariant() -eq '25035edf237b9ae3626b1c0b0c1afb666197bff192cddb31b8f40fcc7b8ddcb5') 'historical M4 baseline manifest remains byte-for-byte immutable'
   $baselineLines = Get-Content -LiteralPath $baselinePath -Encoding utf8 | Where-Object { $_ -match '^[a-f0-9]{64} \*' }
   Assert-True ($baselineLines.Count -ge 40) 'M4 baseline covers the full implementation, tests, workflow and report'
   foreach ($requiredEntry in @(
@@ -197,6 +247,10 @@ if (Test-Path -LiteralPath $baselinePath -PathType Leaf) {
     $relativePath = $parts[1]
     $path = Join-Path $root $relativePath
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "M4 baseline target exists: $relativePath"
+    if ($m5SupersededTargets.Contains($relativePath)) {
+      Pass "M4 baseline target is explicitly superseded by the M5 ledger: $relativePath"
+      continue
+    }
     if (Test-Path -LiteralPath $path -PathType Leaf) {
       $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
       Assert-True ($actual -eq $parts[0]) "M4 baseline target hash matches: $relativePath"
