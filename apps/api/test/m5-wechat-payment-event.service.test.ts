@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { PaymentProvider, ProviderEventStatus } from "@campus/database";
+import {
+  GroupState,
+  MemberStatus,
+  OrderStatus,
+  PaymentProvider,
+  PaymentStatus,
+  Prisma,
+  ProviderEventStatus,
+  RoundState,
+} from "@campus/database";
 import { describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../src/config";
 import type { PrismaService } from "../src/database/prisma.service";
@@ -110,6 +119,94 @@ function createSubject(options: { readonly matchingAmount: boolean } = { matchin
   return { service, prisma, events, reconciliations };
 }
 
+function createApplyRaceSubject(options: {
+  readonly replayStatus: ProviderEventStatus;
+  readonly transactionOwner: "SAME_EVENT" | "DIFFERENT_EVENT";
+  readonly uniqueTarget?: string | readonly string[];
+}) {
+  const eventId = randomUUID();
+  const transactionId = "wechat-transaction-race-0001";
+  const roundId = randomUUID();
+  const groupId = randomUUID();
+  const memberId = randomUUID();
+  const reconciliations: Record<string, unknown>[] = [];
+  let reads = 0;
+  const event = {
+    id: eventId,
+    campusId,
+    orderId,
+    refundId: null,
+    status: ProviderEventStatus.RECEIVED,
+    eventType: "TRANSACTION.SUCCESS",
+    merchantRefundNo: null,
+    providerTransactionId: transactionId,
+    rawDigest: "c".repeat(64),
+    amountFen: 99,
+    currency: "CNY",
+    occurredAt: new Date(),
+    order: {
+      id: orderId,
+      campusId,
+      amountFen: 99,
+      currency: "CNY",
+      status: OrderStatus.PAYING,
+      expiresAt: new Date(Date.now() + 60_000),
+      userId: randomUUID(),
+      round: {
+        id: roundId,
+        groupId,
+        state: RoundState.PAYING,
+        group: { state: GroupState.PAYING },
+      },
+    },
+  };
+  const prisma = {
+    providerEvent: {
+      findUnique: vi.fn(async () => {
+        reads += 1;
+        return reads > 1 ? { ...event, status: options.replayStatus } : event;
+      }),
+      update: vi.fn(async () => event),
+    },
+    paymentTransaction: {
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(async () => {
+        throw new Prisma.PrismaClientKnownRequestError("duplicate provider transaction", {
+          code: "P2002",
+          clientVersion: "test",
+          meta: { target: options.uniqueTarget ?? ["providerTransactionId"] },
+        });
+      }),
+      findUnique: vi.fn(async () => ({
+        campusId,
+        orderId,
+        provider: PaymentProvider.WECHAT_PAY,
+        providerEventId: options.transactionOwner === "SAME_EVENT" ? eventId : randomUUID(),
+        status: PaymentStatus.SUCCEEDED,
+      })),
+    },
+    groupMember: {
+      findFirst: vi.fn(async () => ({ id: memberId, status: MemberStatus.PAYMENT_PENDING })),
+    },
+    reconciliationException: {
+      upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
+        reconciliations.push(create);
+        return create;
+      }),
+    },
+    $transaction: vi.fn(async (action: (transaction: unknown) => Promise<unknown>) =>
+      action(prisma),
+    ),
+  };
+  const service = new PaymentsService(
+    prisma as unknown as PrismaService,
+    {} as never,
+    {} as never,
+    { nodeEnv: "test" } as AppConfig,
+  );
+  return { service, prisma, eventId, reconciliations };
+}
+
 describe("M5 verified WeChat payment-event ingress", () => {
   it("persists a privacy-minimized external fact before internal application", async () => {
     const subject = createSubject();
@@ -170,5 +267,75 @@ describe("M5 verified WeChat payment-event ingress", () => {
         observedDigest: "b".repeat(64),
       }),
     ]);
+  });
+
+  it("treats a same-event provider-transaction race as an idempotent terminal replay", async () => {
+    const subject = createApplyRaceSubject({
+      replayStatus: ProviderEventStatus.APPLIED,
+      transactionOwner: "SAME_EVENT",
+    });
+
+    await expect(
+      subject.service.applyVerifiedWechatPaymentEvent(subject.eventId),
+    ).resolves.toMatchObject({ providerEventId: subject.eventId, status: "APPLIED" });
+
+    expect(subject.prisma.paymentTransaction.create).toHaveBeenCalledTimes(1);
+    expect(subject.prisma.reconciliationException.upsert).not.toHaveBeenCalled();
+  });
+
+  it("holds a different event that claims an already-used provider transaction for review", async () => {
+    const subject = createApplyRaceSubject({
+      replayStatus: ProviderEventStatus.RECEIVED,
+      transactionOwner: "DIFFERENT_EVENT",
+    });
+
+    await expect(
+      subject.service.applyVerifiedWechatPaymentEvent(subject.eventId),
+    ).resolves.toMatchObject({ providerEventId: subject.eventId, status: "REVIEW_REQUIRED" });
+
+    expect(subject.reconciliations).toEqual([
+      expect.objectContaining({ code: "DUPLICATE_PROVIDER_TRANSACTION" }),
+    ]);
+  });
+
+  it("holds an internally inconsistent same-event transaction for review instead of inferring delivery", async () => {
+    const subject = createApplyRaceSubject({
+      replayStatus: ProviderEventStatus.RECEIVED,
+      transactionOwner: "SAME_EVENT",
+    });
+
+    await expect(
+      subject.service.applyVerifiedWechatPaymentEvent(subject.eventId),
+    ).resolves.toMatchObject({ providerEventId: subject.eventId, status: "REVIEW_REQUIRED" });
+
+    expect(subject.reconciliations).toEqual([
+      expect.objectContaining({ code: "PAYMENT_EVENT_STATE_MISMATCH" }),
+    ]);
+  });
+
+  it("does not convert a different unique-constraint failure into a payment replay", async () => {
+    const subject = createApplyRaceSubject({
+      replayStatus: ProviderEventStatus.APPLIED,
+      transactionOwner: "SAME_EVENT",
+      uniqueTarget: ["orderId"],
+    });
+
+    await expect(
+      subject.service.applyVerifiedWechatPaymentEvent(subject.eventId),
+    ).rejects.toMatchObject({
+      code: "P2002",
+    });
+  });
+
+  it("accepts the provider-event target when Prisma reports it as a string", async () => {
+    const subject = createApplyRaceSubject({
+      replayStatus: ProviderEventStatus.APPLIED,
+      transactionOwner: "SAME_EVENT",
+      uniqueTarget: "providerEventId",
+    });
+
+    await expect(
+      subject.service.applyVerifiedWechatPaymentEvent(subject.eventId),
+    ).resolves.toMatchObject({ providerEventId: subject.eventId, status: "APPLIED" });
   });
 });

@@ -413,130 +413,182 @@ export class PaymentsService {
     providerEventId: string,
     now = new Date(),
   ): Promise<WechatProviderEventReceipt> {
-    return runSerializableWithRetry(this.prisma, async (transaction) => {
-      const event = await transaction.providerEvent.findUnique({
-        where: { id: providerEventId },
-        include: {
-          order: {
-            include: {
-              round: { include: { group: true } },
+    try {
+      return await runSerializableWithRetry(this.prisma, async (transaction) => {
+        const event = await transaction.providerEvent.findUnique({
+          where: { id: providerEventId },
+          include: {
+            order: {
+              include: {
+                round: { include: { group: true } },
+              },
             },
           },
-        },
+        });
+        if (event === null) throw resourceNotFound();
+        if (event.status !== ProviderEventStatus.RECEIVED) {
+          return { providerEventId: event.id, status: event.status };
+        }
+        if (event.merchantRefundNo !== null || event.eventType !== "TRANSACTION.SUCCESS") {
+          return markWechatEventForReview(transaction, event, "UNSUPPORTED_PROVIDER_EVENT");
+        }
+        const order = event.order;
+        if (order === null) {
+          const candidate = await transaction.serviceOrder.findUnique({
+            where: { merchantOrderNo: event.merchantOrderNo ?? "" },
+            select: { id: true, campusId: true },
+          });
+          return markWechatEventForReview(
+            transaction,
+            event,
+            candidate === null ? "UNKNOWN_MERCHANT_ORDER" : "PROVIDER_AMOUNT_MISMATCH",
+            candidate ?? undefined,
+          );
+        }
+        if (
+          event.amountFen !== order.amountFen ||
+          event.currency !== order.currency ||
+          event.providerTransactionId === null
+        ) {
+          return markWechatEventForReview(transaction, event, "PROVIDER_PAYMENT_FACT_MISMATCH", {
+            id: order.id,
+            campusId: order.campusId,
+          });
+        }
+        if (
+          order.round.state !== RoundState.PAYING ||
+          order.round.group.state !== GroupState.PAYING ||
+          order.expiresAt <= now ||
+          !PAYABLE_ORDER_STATES.includes(order.status)
+        ) {
+          return markWechatEventForReview(transaction, event, "UNEXPECTED_PAYMENT_ORDER_STATE", {
+            id: order.id,
+            campusId: order.campusId,
+          });
+        }
+        const priorSuccess = await transaction.paymentTransaction.findFirst({
+          where: {
+            campusId: order.campusId,
+            orderId: order.id,
+            provider: PaymentProvider.WECHAT_PAY,
+            status: PaymentStatus.SUCCEEDED,
+          },
+          select: { id: true },
+        });
+        if (priorSuccess !== null) {
+          return markWechatEventForReview(transaction, event, "DUPLICATE_PROVIDER_TRANSACTION", {
+            id: order.id,
+            campusId: order.campusId,
+          });
+        }
+        const membership = await transaction.groupMember.findFirst({
+          where: {
+            campusId: order.campusId,
+            groupId: order.round.groupId,
+            userId: order.userId,
+            status: MemberStatus.PAYMENT_PENDING,
+          },
+          select: { id: true },
+        });
+        if (membership === null) {
+          return markWechatEventForReview(transaction, event, "PAYMENT_MEMBER_STATE_MISMATCH", {
+            id: order.id,
+            campusId: order.campusId,
+          });
+        }
+
+        await transaction.paymentTransaction.create({
+          data: {
+            campusId: order.campusId,
+            orderId: order.id,
+            provider: PaymentProvider.WECHAT_PAY,
+            providerTransactionId: event.providerTransactionId,
+            providerEventId: event.id,
+            status: PaymentStatus.SUCCEEDED,
+            rawDigest: event.rawDigest,
+            occurredAt: event.occurredAt ?? now,
+          },
+        });
+        const paid = await transaction.serviceOrder.updateMany({
+          where: { id: order.id, status: { in: [OrderStatus.CREATED, OrderStatus.PAYING] } },
+          data: { status: OrderStatus.PAID },
+        });
+        if (paid.count !== 1) {
+          return markWechatEventForReview(
+            transaction,
+            event,
+            "PAYMENT_ORDER_CONCURRENTLY_CHANGED",
+            {
+              id: order.id,
+              campusId: order.campusId,
+            },
+          );
+        }
+        await transaction.groupMember.update({
+          where: { id: membership.id },
+          data: { status: MemberStatus.PAID },
+        });
+        await this.deliverIfComplete(transaction, order.round.id, now);
+        await transaction.providerEvent.update({
+          where: { id: event.id },
+          data: { status: ProviderEventStatus.APPLIED, appliedAt: now },
+        });
+        await transaction.outboxEvent.create({
+          data: {
+            campusId: order.campusId,
+            aggregateType: "ProviderEvent",
+            aggregateId: event.id,
+            eventType: "WechatPaymentEventApplied",
+            payload: { serviceOrderId: order.id },
+          },
+        });
+        return { providerEventId: event.id, status: "APPLIED" };
       });
+    } catch (error) {
+      // Two delivery workers can both observe RECEIVED before either one writes
+      // the terminal transaction. The unique transaction and event IDs are
+      // the durable last line of defence. A conflict must be re-read outside the aborted
+      // transaction: it is an idempotent replay only when this exact event is
+      // already terminal; any other claim of the provider transaction is held
+      // for reconciliation.
+      if (!isUniquePaymentTransactionReplayConflict(error)) throw error;
+      return this.resolveWechatPaymentTransactionConflict(providerEventId);
+    }
+  }
+
+  private async resolveWechatPaymentTransactionConflict(
+    providerEventId: string,
+  ): Promise<WechatProviderEventReceipt> {
+    return runSerializableWithRetry(this.prisma, async (transaction) => {
+      const event = await transaction.providerEvent.findUnique({ where: { id: providerEventId } });
       if (event === null) throw resourceNotFound();
       if (event.status !== ProviderEventStatus.RECEIVED) {
         return { providerEventId: event.id, status: event.status };
       }
-      if (event.merchantRefundNo !== null || event.eventType !== "TRANSACTION.SUCCESS") {
-        return markWechatEventForReview(transaction, event, "UNSUPPORTED_PROVIDER_EVENT");
-      }
-      const order = event.order;
-      if (order === null) {
-        const candidate = await transaction.serviceOrder.findUnique({
-          where: { merchantOrderNo: event.merchantOrderNo ?? "" },
-          select: { id: true, campusId: true },
-        });
-        return markWechatEventForReview(
-          transaction,
-          event,
-          candidate === null ? "UNKNOWN_MERCHANT_ORDER" : "PROVIDER_AMOUNT_MISMATCH",
-          candidate ?? undefined,
-        );
-      }
-      if (
-        event.amountFen !== order.amountFen ||
-        event.currency !== order.currency ||
-        event.providerTransactionId === null
-      ) {
-        return markWechatEventForReview(transaction, event, "PROVIDER_PAYMENT_FACT_MISMATCH", {
-          id: order.id,
-          campusId: order.campusId,
-        });
-      }
-      if (
-        order.round.state !== RoundState.PAYING ||
-        order.round.group.state !== GroupState.PAYING ||
-        order.expiresAt <= now ||
-        !PAYABLE_ORDER_STATES.includes(order.status)
-      ) {
-        return markWechatEventForReview(transaction, event, "UNEXPECTED_PAYMENT_ORDER_STATE", {
-          id: order.id,
-          campusId: order.campusId,
-        });
-      }
-      const priorSuccess = await transaction.paymentTransaction.findFirst({
-        where: {
-          campusId: order.campusId,
-          orderId: order.id,
-          provider: PaymentProvider.WECHAT_PAY,
-          status: PaymentStatus.SUCCEEDED,
-        },
-        select: { id: true },
-      });
-      if (priorSuccess !== null) {
-        return markWechatEventForReview(transaction, event, "DUPLICATE_PROVIDER_TRANSACTION", {
-          id: order.id,
-          campusId: order.campusId,
-        });
-      }
-      const membership = await transaction.groupMember.findFirst({
-        where: {
-          campusId: order.campusId,
-          groupId: order.round.groupId,
-          userId: order.userId,
-          status: MemberStatus.PAYMENT_PENDING,
-        },
-        select: { id: true },
-      });
-      if (membership === null) {
-        return markWechatEventForReview(transaction, event, "PAYMENT_MEMBER_STATE_MISMATCH", {
-          id: order.id,
-          campusId: order.campusId,
-        });
-      }
 
-      await transaction.paymentTransaction.create({
-        data: {
-          campusId: order.campusId,
-          orderId: order.id,
-          provider: PaymentProvider.WECHAT_PAY,
-          providerTransactionId: event.providerTransactionId,
-          providerEventId: event.id,
-          status: PaymentStatus.SUCCEEDED,
-          rawDigest: event.rawDigest,
-          occurredAt: event.occurredAt ?? now,
+      const conflictingTransaction = await transaction.paymentTransaction.findUnique({
+        where: { providerTransactionId: event.providerTransactionId ?? "" },
+        select: {
+          campusId: true,
+          orderId: true,
+          provider: true,
+          providerEventId: true,
+          status: true,
         },
       });
-      const paid = await transaction.serviceOrder.updateMany({
-        where: { id: order.id, status: { in: [OrderStatus.CREATED, OrderStatus.PAYING] } },
-        data: { status: OrderStatus.PAID },
-      });
-      if (paid.count !== 1) {
-        return markWechatEventForReview(transaction, event, "PAYMENT_ORDER_CONCURRENTLY_CHANGED", {
-          id: order.id,
-          campusId: order.campusId,
-        });
+      if (
+        conflictingTransaction !== null &&
+        conflictingTransaction.provider === PaymentProvider.WECHAT_PAY &&
+        conflictingTransaction.providerEventId === event.id &&
+        conflictingTransaction.orderId === event.orderId &&
+        conflictingTransaction.campusId === event.campusId &&
+        conflictingTransaction.status === PaymentStatus.SUCCEEDED
+      ) {
+        // A committed payment transaction without a terminal provider event is
+        // internally inconsistent. Do not infer contact delivery from it.
+        return markWechatEventForReview(transaction, event, "PAYMENT_EVENT_STATE_MISMATCH");
       }
-      await transaction.groupMember.update({
-        where: { id: membership.id },
-        data: { status: MemberStatus.PAID },
-      });
-      await this.deliverIfComplete(transaction, order.round.id, now);
-      await transaction.providerEvent.update({
-        where: { id: event.id },
-        data: { status: ProviderEventStatus.APPLIED, appliedAt: now },
-      });
-      await transaction.outboxEvent.create({
-        data: {
-          campusId: order.campusId,
-          aggregateType: "ProviderEvent",
-          aggregateId: event.id,
-          eventType: "WechatPaymentEventApplied",
-          payload: { serviceOrderId: order.id },
-        },
-      });
-      return { providerEventId: event.id, status: "APPLIED" };
+      return markWechatEventForReview(transaction, event, "DUPLICATE_PROVIDER_TRANSACTION");
     });
   }
 
@@ -1235,6 +1287,19 @@ async function markWechatEventForReview(
 
 function isUniqueProviderEventConflict(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function isUniquePaymentTransactionReplayConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+    return false;
+  }
+  const target = error.meta?.["target"];
+  const targets = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+  return targets.some(
+    (value) =>
+      typeof value === "string" &&
+      (value.includes("providerTransactionId") || value.includes("providerEventId")),
+  );
 }
 
 function refundResponse(refund: {
