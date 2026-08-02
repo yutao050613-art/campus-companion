@@ -4,7 +4,7 @@
 - Branch: `agent/m5-wechat-risk`
 - Base accepted main commit: `7bdbcdc81f3f14a42e2a910ab3ddda1442e195b7`
 - Accountable owner and final approver: Cedric
-- Status: **OFFLINE IMPLEMENTATION VERIFIED; LIVE MERCHANT EXECUTION PENDING**
+- Status: **REMOTE QUALITY GATE VERIFIED; CANDIDATE ACCEPTANCE READY FOR REVIEW; LIVE MERCHANT EXECUTION PENDING**
 
 This is a candidate verification report, not an acceptance record. It preserves the mandatory pause
 in [the M5 entry approval](m5-entry-approval.md): M5 cannot be marked finally accepted and M6
@@ -40,8 +40,8 @@ cannot begin before real test-merchant evidence is collected and approved.
 
 | Gate | Result | Evidence |
 |---|---|---|
-| Aggregate quality gate | Pass | `pnpm check` completed on 2026-08-02 in 258 seconds against PostgreSQL and Redis, including M0–M5 verifiers, static security scan, type checks, builds, tests and coverage. |
-| M5 structural verifier | Pass | `pnpm verify:m5`: 86 passed, 0 failed. |
+| Aggregate quality gate | Pass | `pnpm check` completed on 2026-08-02 in 250.1 seconds against PostgreSQL and Redis, including M0-M5 verifiers, static security scan, type checks, builds, tests and coverage. |
+| M5 structural verifier | Pass | `pnpm verify:m5`: 87 passed, 0 failed. |
 | Migration status | Pass | `pnpm db:status`: four migrations found; local PostgreSQL schema is up to date. |
 | Full API coverage | Pass | statements 87.98% (1479/1681), branches 80.03% (1050/1312), functions 95.10% (350/368), lines 90.35% (1386/1534). |
 | WeChat protocol tests | Pass | 18 tests cover signing, public-key verification, strict parsing, decrypt failures, fixed-host transport, oversized/malformed replies, ambiguous outcomes, prepay and refund request construction. |
@@ -51,6 +51,25 @@ cannot begin before real test-merchant evidence is collected and approved.
 | Formatting and diff integrity | Pass | `biome ci .` completed with no errors; `git diff --check` completed with no whitespace errors. Existing repository informational suggestions do not fail the gate. |
 | Dependency vulnerability audit | Pass | `pnpm audit --audit-level high --json`: 0 vulnerabilities across 275 dependencies. |
 | Secret/log review | Pass | A tracked-source scan found no private-key literal, populated payment secret, or M5 callback console logging. Configuration keeps callbacks disabled by default and outbound WeChat payment fail-closed. |
+
+## Remote CI remediation and evidence
+
+- The first remote run for this PR failed safely: duplicate deliveries of the same verified payment
+  callback could race on the unique `PaymentTransaction.providerTransactionId` index and raise
+  PostgreSQL `P2002`, rather than returning the prior terminal result. The failure is retained at
+  [GitHub Actions run 30743455645](https://github.com/yutao050613-art/campus-companion/actions/runs/30743455645/job/91484871278).
+- Commit `49ffb63` fixes this narrow replay race. It distinguishes a same-event terminal replay
+  (idempotently return the existing result) from a reused provider transaction, an event that is
+  still received, or any unrelated unique constraint (all fail closed to review or rethrow). The
+  repair also recognizes either `providerTransactionId` or `providerEventId` reported by Prisma
+  as the conflict target.
+- Five focused service regressions cover terminal replay, reused transaction review, received-event
+  mismatch review, unrelated unique errors, and string-form conflict metadata. The native PostgreSQL
+  test repeats the concurrent delivery race twenty times.
+- The repaired commit passed the required `verify` check in
+  [GitHub Actions run 30744693572](https://github.com/yutao050613-art/campus-companion/actions/runs/30744693572/job/91488183571)
+  on 2026-08-02. This is remote evidence for the code candidate; this report commit must pass the
+  same required check before the report is submitted as the final candidate record.
 
 ## Live-provider boundary
 
